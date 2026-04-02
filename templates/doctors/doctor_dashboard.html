@@ -200,7 +200,7 @@
                         <option value="">All Statuses</option>
                         {% for s in filters.statuses %}
                         <option value="{{ s }}" {% if current_status == s %}selected{% endif %}>
-                            {{ s }}
+                            {{ s }}     
                         </option>
                         {% endfor %}
                     </select>
