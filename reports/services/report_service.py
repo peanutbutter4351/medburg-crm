@@ -217,12 +217,12 @@ def get_doctor_roi_report(
         investment = doc_inv["investment"]
         roi_target = doc_inv["roi_target"]
         achieved = achieved_totals.get(did, Decimal("0"))
-        balance = roi_target - achieved
+        balance = max(Decimal("0"), investment - achieved)
 
         # Status logic
         if investment == 0:
             status = "Pending"
-        elif balance <= 0:
+        elif achieved >= investment:
             status = "Completed"
         else:
             status = "In Progress"
