@@ -33,8 +33,7 @@
     <!-- ── Sidebar ───────────────────────────────── -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
-            <div class="brand-icon"><i class="bi bi-capsule"></i></div>
-            <span class="brand-text">Medburg CRM</span>
+            <img src="{% static 'img/logo-icon.png' %}" alt="Medburg" class="brand-logo-icon">
         </div>
 
         <div class="sidebar-label">Main Menu</div>
@@ -98,6 +97,8 @@
                 <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">
                     <i class="bi bi-list"></i>
                 </button>
+                <div class="topbar-brand-text">Medburg CRM</div>
+                <div class="topbar-divider"></div>
                 <div class="topbar-left">
                     <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
                     <div class="topbar-subtitle">{% block page_subtitle %}{% endblock %}</div>
