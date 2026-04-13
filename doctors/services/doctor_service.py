@@ -58,7 +58,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
         )
         .annotate(
             balance_roi=Greatest(
-                F("total_investment") - F("achieved_roi"),
+                F("total_roi_amount") - F("achieved_roi"),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
@@ -66,8 +66,8 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
         .annotate(
             roi_status=Case(
                 When(mode="postpaid", then=Value("Postpaid")),
-                When(total_investment=Decimal("0"), then=Value("No Investment")),
-                When(achieved_roi__gte=F("total_investment"), then=Value("Completed")),
+                When(total_roi_amount=Decimal("0"), then=Value("No Investment")),
+                When(achieved_roi__gte=F("total_roi_amount"), then=Value("Completed")),
                 When(achieved_roi__gt=Decimal("0"), then=Value("In Progress")),
                 default=Value("Pending"),
                 output_field=CharField(),

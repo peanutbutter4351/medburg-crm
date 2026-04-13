@@ -217,12 +217,12 @@ def get_doctor_roi_report(
         investment = doc_inv["investment"]
         roi_target = doc_inv["roi_target"]
         achieved = achieved_totals.get(did, Decimal("0"))
-        balance = max(Decimal("0"), investment - achieved)
+        balance = max(Decimal("0"), roi_target - achieved)
 
         # Status logic
-        if investment == 0:
+        if roi_target == 0:
             status = "Pending"
-        elif achieved >= investment:
+        elif achieved >= roi_target:
             status = "Completed"
         else:
             status = "In Progress"
@@ -291,7 +291,7 @@ def get_report_summary(queryset):
     achieved = agg["total_value"]
     investment = inv_agg["total_investment"]
     roi_amount = inv_agg["total_roi_amount"]
-    balance = max(Decimal("0"), investment - achieved)
+    balance = max(Decimal("0"), roi_amount - achieved)
 
     return {
         "total_entries": queryset.count(),
