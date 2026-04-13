@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_authenticated and user.is_staff %}
+<a href="{% url 'admin:index' %}"></a>
+{% endif %}
+{% endblock %}
+
+{% block userlinks %}
+    <a href="{% url 'doctors:dashboard' %}">View Dashboard</a> /
+    {% if user.has_usable_password %}
+    <a href="{% url 'admin:password_change' %}">{% translate 'Change password' %}</a> /
+    {% endif %}
+    <form id="logout-form" method="post" action="{% url 'admin:logout' %}" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" style="background:none;border:none;color:#81d4fa;cursor:pointer;padding:0;font:inherit;">
+            {% translate 'Log out' %}
+        </button>
+    </form>
+{% endblock %}

@@ -135,18 +135,25 @@ body {
     font-size: .88rem;
     font-weight: 500;
     border-left: 3px solid transparent;
-    transition: var(--transition);
+    transition: all .25s cubic-bezier(.4,0,.2,1);
+    position: relative;
 }
 
 .sidebar-nav li a i {
     font-size: 1.1rem;
     width: 22px;
     text-align: center;
+    transition: transform .25s ease;
 }
 
 .sidebar-nav li a:hover {
-    color: #e2e8f0;
+    color: #f1f5f9;
     background: var(--sidebar-hover);
+    padding-left: 28px;
+}
+
+.sidebar-nav li a:hover i {
+    transform: scale(1.12);
 }
 
 .sidebar-nav li a.active {
@@ -154,6 +161,10 @@ body {
     background: var(--sidebar-active);
     border-left-color: var(--primary);
     font-weight: 600;
+}
+
+.sidebar-nav li a.active i {
+    filter: drop-shadow(0 0 4px rgba(239,167,67,.4));
 }
 
 .sidebar-nav li a .nav-badge {
@@ -377,12 +388,31 @@ body {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    transition: var(--transition);
+    transition: all .3s cubic-bezier(.4,0,.2,1);
+    position: relative;
+    overflow: hidden;
+}
+
+.kpi-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    opacity: 0;
+    transition: opacity .3s ease;
 }
 
 .kpi-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
+    box-shadow: 0 8px 25px rgba(0,0,0,.08);
+    transform: translateY(-3px);
+    border-color: transparent;
+}
+
+.kpi-card:hover::after {
+    opacity: 1;
 }
 
 .kpi-card .kpi-info {}
@@ -530,6 +560,7 @@ body {
     vertical-align: middle;
     color: var(--text-primary);
     border-bottom: 1px solid #f1f5f9;
+    transition: all .2s ease;
 }
 
 .crm-table tbody tr:last-child td {
@@ -537,7 +568,11 @@ body {
 }
 
 .crm-table tbody tr:hover td {
-    background: #fafbfc;
+    background: rgba(239,167,67,.03);
+}
+
+.crm-table tbody tr:hover td:first-child {
+    box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .crm-table .text-right { text-align: right; }
@@ -609,7 +644,7 @@ body {
 
 /* ── Buttons ───────────────────────────────────── */
 .btn-crm-primary {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--primary), #f5c066);
     color: #fff;
     border: none;
     border-radius: var(--radius-sm);
@@ -617,7 +652,7 @@ body {
     font-size: .85rem;
     font-weight: 600;
     cursor: pointer;
-    transition: var(--transition);
+    transition: all .25s cubic-bezier(.4,0,.2,1);
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -625,10 +660,15 @@ body {
 }
 
 .btn-crm-primary:hover {
-    background: var(--primary-dark);
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
     color: #fff;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(239,167,67,.3);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(239,167,67,.35);
+}
+
+.btn-crm-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(239,167,67,.2);
 }
 
 .btn-crm-secondary {
@@ -727,50 +767,64 @@ body {
     padding: 10px 14px;
     font-size: .88rem;
     color: var(--text-primary);
-    transition: var(--transition);
+    transition: all .25s ease;
+    background: #fff;
+}
+
+.crm-form .form-control:hover,
+.crm-form .form-select:hover {
+    border-color: #cbd5e1;
 }
 
 .crm-form .form-control:focus,
 .crm-form .form-select:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(239,167,67,.12);
+    box-shadow: 0 0 0 4px rgba(239,167,67,.1), 0 1px 3px rgba(0,0,0,.06);
+    outline: none;
 }
 
 .crm-form .btn-submit {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--primary), #f5c066);
     color: #fff;
     border: none;
     border-radius: var(--radius-sm);
-    padding: 11px 24px;
+    padding: 12px 24px;
     font-size: .9rem;
     font-weight: 600;
     width: 100%;
     cursor: pointer;
-    transition: var(--transition);
+    transition: all .25s cubic-bezier(.4,0,.2,1);
+    letter-spacing: .3px;
 }
 
 .crm-form .btn-submit:hover {
-    background: var(--primary-dark);
-    box-shadow: 0 4px 14px rgba(239,167,67,.3);
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    box-shadow: 0 6px 20px rgba(239,167,67,.35);
+    transform: translateY(-1px);
+}
+
+.crm-form .btn-submit:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(239,167,67,.2);
 }
 
 
 /* ── Progress Bars ─────────────────────────────── */
 .crm-progress {
     height: 6px;
-    background: #f1f5f9;
-    border-radius: 3px;
+    background: #e8ecf1;
+    border-radius: 6px;
     overflow: hidden;
 }
 
 .crm-progress .crm-progress-bar {
     height: 100%;
-    border-radius: 3px;
-    transition: width .4s ease;
+    border-radius: 6px;
+    transition: width .6s cubic-bezier(.4,0,.2,1);
 }
 
-.crm-progress-bar.bg-crm-primary { background: var(--primary); }
-.crm-progress-bar.bg-crm-success { background: var(--success); }
+.crm-progress-bar.bg-crm-primary { background: linear-gradient(90deg, #efa743, #f5c066); }
+.crm-progress-bar.bg-crm-success { background: linear-gradient(90deg, #22c55e, #4ade80); }
 .crm-progress-bar.bg-crm-info { background: var(--info); }
 .crm-progress-bar.bg-crm-danger { background: var(--danger); }
 
@@ -841,17 +895,13 @@ body {
     box-shadow: var(--shadow-lg);
 }
 
-.login-card .brand-mark {
-    width: 48px;
-    height: 48px;
-    background: var(--primary);
+.login-card .login-logo {
+    width: 60px;
+    height: 60px;
+    object-fit: contain;
     border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.4rem;
-    color: #fff;
     margin: 0 auto 16px;
+    display: block;
 }
 
 .login-card h4 {

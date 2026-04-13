@@ -1,13 +1,12 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Login — Medburg CRM{% endblock %}
 
 {% block unauthenticated_content %}
 <div class="login-layout">
     <div class="login-card">
         <div class="text-center">
-            <div class="brand-mark">
-                <i class="bi bi-capsule"></i>
-            </div>
+            <img src="{% static 'img/logo-icon.png' %}" alt="Medburg" class="login-logo">
             <h4>Medburg CRM</h4>
             <p class="subtitle">Sign in to your account</p>
         </div>
