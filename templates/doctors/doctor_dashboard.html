@@ -293,12 +293,11 @@
                         <!-- Progress bar cell -->
                         <td style="min-width:100px;">
                             {% if doc.mode == "prepaid" and doc.total_roi_amount > 0 %}
-                            {% widthratio doc.achieved_roi doc.total_roi_amount 100 as progress %}
                             <div class="progress" style="height:6px; border-radius:3px;">
                                 <div class="progress-bar {% if doc.roi_status == 'Completed' %}bg-success{% elif doc.roi_status == 'In Progress' %}bg-info{% elif doc.roi_status == 'Pending' %}bg-danger{% else %}bg-secondary{% endif %}"
-                                    style="width: {{ progress }}%;"></div>
+                                    style="width: {{ doc.progress_pct }}%;"></div>
                             </div>
-                            <small class="text-muted">{{ progress }}%</small>
+                            <small class="text-muted">{{ doc.progress_pct }}%</small>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}

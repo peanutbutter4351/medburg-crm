@@ -289,14 +289,15 @@ def get_report_summary(queryset):
     )
 
     achieved = agg["total_value"]
+    investment = inv_agg["total_investment"]
     roi_amount = inv_agg["total_roi_amount"]
-    balance = roi_amount - achieved
+    balance = max(Decimal("0"), investment - achieved)
 
     return {
         "total_entries": queryset.count(),
         "total_quantity": agg["total_quantity"],
         "total_value": achieved,
-        "total_investment": inv_agg["total_investment"],
+        "total_investment": investment,
         "total_roi_amount": roi_amount,
         "balance_roi": balance,
     }
