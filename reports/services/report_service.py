@@ -318,28 +318,36 @@ _SUMMARY_FILL = PatternFill(start_color="E8EDFF", end_color="E8EDFF", fill_type=
 _SUMMARY_FONT = Font(name="Calibri", bold=True, size=11)
 
 _COLUMNS = [
-    ("Date", 14),
-    ("Doctor", 28),
-    ("Medicine", 28),
-    ("Sales Rep", 22),
-    ("Quantity", 12),
+    ("Sl No", 8),
+    ("Doctor", 24),
+    ("Area", 18),
+    ("Type", 12),
+    ("Medicine", 24),
+    ("Sales Rep", 20),
+    ("Quantity", 10),
     ("Value (₹)", 16),
+    ("Investment (₹)", 16),
+    ("Date", 14),
+    ("Balance (₹)", 16),
+    ("Status", 14),
 ]
 
+_NUM_COLS = len(_COLUMNS)
 
-def export_to_excel(queryset, summary):
+
+def export_to_excel(roi_rows, summary):
     """
-    Generate a styled .xlsx workbook from the filtered queryset and
+    Generate a styled .xlsx workbook from the doctor ROI rows and
     return a BytesIO buffer ready for HttpResponse streaming.
     """
     wb = Workbook()
     ws = wb.active
-    ws.title = "Sales Report"
+    ws.title = "Doctor ROI Report"
 
     # ── Title row ────────────────────────────────────
-    ws.merge_cells("A1:F1")
+    ws.merge_cells(f"A1:{get_column_letter(_NUM_COLS)}1")
     title_cell = ws["A1"]
-    title_cell.value = "Medburg CRM — Sales Report"
+    title_cell.value = "Medburg CRM — Doctor ROI Report"
     title_cell.font = Font(name="Calibri", bold=True, size=14, color="4361EE")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 30
@@ -358,31 +366,43 @@ def export_to_excel(queryset, summary):
 
     # ── Data rows ────────────────────────────────────
     data_align = Alignment(vertical="center")
+    center_align = Alignment(horizontal="center", vertical="center")
+    right_align = Alignment(horizontal="right", vertical="center")
     currency_fmt = '#,##0.00'
 
     row_num = header_row + 1
-    for entry in queryset.iterator(chunk_size=500):
-        ws.cell(row=row_num, column=1, value=entry.entry_date).alignment = data_align
-        ws.cell(row=row_num, column=2, value=entry.doctor.name).alignment = data_align
-        ws.cell(row=row_num, column=3, value=str(entry.medicine)).alignment = data_align
-        ws.cell(
-            row=row_num, column=4,
-            value=entry.rep.get_full_name() or entry.rep.username,
-        ).alignment = data_align
-        ws.cell(row=row_num, column=5, value=entry.quantity).alignment = Alignment(
-            horizontal="center", vertical="center",
-        )
-        value_cell = ws.cell(row=row_num, column=6, value=float(entry.line_value))
-        value_cell.number_format = currency_fmt
-        value_cell.alignment = Alignment(horizontal="right", vertical="center")
+    for row in roi_rows:
+        ws.cell(row=row_num, column=1, value=row["sl_no"]).alignment = center_align
+        ws.cell(row=row_num, column=2, value=row["doctor_name"]).alignment = data_align
+        ws.cell(row=row_num, column=3, value=row["location"]).alignment = data_align
+        ws.cell(row=row_num, column=4, value=row["doctor_type"]).alignment = data_align
+        ws.cell(row=row_num, column=5, value=row["medicine_name"]).alignment = data_align
+        ws.cell(row=row_num, column=6, value=row["rep_name"]).alignment = data_align
+        ws.cell(row=row_num, column=7, value=row["quantity"]).alignment = center_align
+
+        val_cell = ws.cell(row=row_num, column=8, value=float(row["value"]))
+        val_cell.number_format = currency_fmt
+        val_cell.alignment = right_align
+
+        inv_cell = ws.cell(row=row_num, column=9, value=float(row["total_investment"]))
+        inv_cell.number_format = currency_fmt
+        inv_cell.alignment = right_align
+
+        ws.cell(row=row_num, column=10, value=row["entry_date"]).alignment = data_align
+
+        bal_cell = ws.cell(row=row_num, column=11, value=float(row["balance_roi"]))
+        bal_cell.number_format = currency_fmt
+        bal_cell.alignment = right_align
+
+        ws.cell(row=row_num, column=12, value=row["status"]).alignment = center_align
 
         # Alternate row shading
         if row_num % 2 == 0:
             shade = PatternFill(start_color="F8F9FF", end_color="F8F9FF", fill_type="solid")
-            for c in range(1, 7):
+            for c in range(1, _NUM_COLS + 1):
                 ws.cell(row=row_num, column=c).fill = shade
 
-        for c in range(1, 7):
+        for c in range(1, _NUM_COLS + 1):
             ws.cell(row=row_num, column=c).border = _THIN_BORDER
 
         row_num += 1
@@ -427,3 +447,4 @@ def export_to_excel(queryset, summary):
     wb.save(buf)
     buf.seek(0)
     return buf
+

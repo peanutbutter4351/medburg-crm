@@ -99,8 +99,9 @@ def export_report_view(request):
     filters = _parse_filters(request)
     queryset = get_report_queryset(**filters)
     summary = get_report_summary(queryset)
+    roi_rows = get_doctor_roi_report(**filters)
 
-    buf = export_to_excel(queryset, summary)
+    buf = export_to_excel(roi_rows, summary)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     filename = f"medburg_sales_report_{timestamp}.xlsx"
