@@ -1,50 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Login — Medburg CRM{% endblock %}
 
-{% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-11 col-sm-8 col-md-5 col-lg-4">
-        <div class="card p-4">
-            <div class="text-center mb-4">
-                <i class="bi bi-capsule text-primary" style="font-size:2.5rem;"></i>
-                <h4 class="mt-2 fw-bold">Medburg CRM</h4>
-                <p class="text-muted mb-0">Sign in to continue</p>
+{% block unauthenticated_content %}
+<div class="login-layout">
+    <div class="login-card">
+        <div class="text-center">
+            <div class="brand-mark">
+                <i class="bi bi-capsule"></i>
+            </div>
+            <h4>Medburg CRM</h4>
+            <p class="subtitle">Sign in to your account</p>
+        </div>
+
+        <form method="post" class="crm-form" novalidate>
+            {% csrf_token %}
+
+            {% if form.errors %}
+            <div class="crm-alert error">
+                <i class="bi bi-exclamation-circle me-1"></i>
+                Invalid username or password.
+            </div>
+            {% endif %}
+
+            <div class="mb-3">
+                <label for="id_username" class="form-label">Username</label>
+                <div class="input-group">
+                    <span class="input-group-text" style="border-color: var(--border-color); background: var(--body-bg);">
+                        <i class="bi bi-person" style="color: var(--text-muted);"></i>
+                    </span>
+                    <input type="text" name="username" id="id_username"
+                           class="form-control" placeholder="Enter username"
+                           autofocus required>
+                </div>
             </div>
 
-            <form method="post" novalidate>
-                {% csrf_token %}
-
-                {% if form.errors %}
-                <div class="alert alert-danger py-2" role="alert">
-                    <small>Invalid username or password.</small>
+            <div class="mb-4">
+                <label for="id_password" class="form-label">Password</label>
+                <div class="input-group">
+                    <span class="input-group-text" style="border-color: var(--border-color); background: var(--body-bg);">
+                        <i class="bi bi-lock" style="color: var(--text-muted);"></i>
+                    </span>
+                    <input type="password" name="password" id="id_password"
+                           class="form-control" placeholder="Enter password"
+                           required>
                 </div>
-                {% endif %}
+            </div>
 
-                <div class="mb-3">
-                    <label for="id_username" class="form-label">Username</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-person"></i></span>
-                        <input type="text" name="username" id="id_username"
-                               class="form-control" placeholder="Enter username"
-                               autofocus required>
-                    </div>
-                </div>
-
-                <div class="mb-4">
-                    <label for="id_password" class="form-label">Password</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-lock"></i></span>
-                        <input type="password" name="password" id="id_password"
-                               class="form-control" placeholder="Enter password"
-                               required>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold">
-                    <i class="bi bi-box-arrow-in-right me-1"></i> Sign In
-                </button>
-            </form>
-        </div>
+            <button type="submit" class="btn-submit">
+                <i class="bi bi-box-arrow-in-right me-1"></i> Sign In
+            </button>
+        </form>
     </div>
 </div>
 {% endblock %}

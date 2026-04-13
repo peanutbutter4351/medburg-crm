@@ -1,124 +1,137 @@
 {% extends "base.html" %}
 {% block title %}Sales Entry — Medburg CRM{% endblock %}
 
+{% block page_title %}Sales Entry{% endblock %}
+{% block page_subtitle %}Record a new sales transaction{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center">
 
     <!-- ─── Entry Form ─────────────────────────────── -->
     <div class="col-12 col-md-7 col-lg-6 mb-4">
-        <div class="card p-4">
-            <h5 class="fw-bold mb-3">
-                <i class="bi bi-pencil-square me-2 text-primary"></i>New Sales Entry
-            </h5>
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-pencil-square"></i> New Sales Entry
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                <form method="post" id="salesEntryForm" class="crm-form" novalidate>
+                    {% csrf_token %}
 
-            <form method="post" id="salesEntryForm" novalidate>
-                {% csrf_token %}
-
-                {% if form.non_field_errors %}
-                <div class="alert alert-danger py-2">
-                    {% for error in form.non_field_errors %}
-                        <small>{{ error }}</small><br>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                <!-- Doctor -->
-                <div class="mb-3">
-                    <label for="id_doctor" class="form-label fw-semibold">
-                        <i class="bi bi-person-badge me-1"></i>Doctor
-                    </label>
-                    {{ form.doctor }}
-                    {% if form.doctor.errors %}
-                    <div class="invalid-feedback d-block">
-                        {{ form.doctor.errors.0 }}
+                    {% if form.non_field_errors %}
+                    <div class="crm-alert error">
+                        {% for error in form.non_field_errors %}
+                            <small>{{ error }}</small><br>
+                        {% endfor %}
                     </div>
                     {% endif %}
-                </div>
 
-                <!-- Medicine -->
-                <div class="mb-3">
-                    <label for="id_medicine" class="form-label fw-semibold">
-                        <i class="bi bi-capsule me-1"></i>Medicine
-                    </label>
-                    {{ form.medicine }}
-                    {% if form.medicine.errors %}
-                    <div class="invalid-feedback d-block">
-                        {{ form.medicine.errors.0 }}
+                    <!-- Doctor -->
+                    <div class="mb-3">
+                        <label for="id_doctor" class="form-label">
+                            <i class="bi bi-person-badge me-1 text-crm-primary"></i>Doctor
+                        </label>
+                        {{ form.doctor }}
+                        {% if form.doctor.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.doctor.errors.0 }}
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
-                    <div id="medicinePTR" class="form-text text-primary fw-semibold" style="display:none;"></div>
-                </div>
 
-                <!-- Quantity -->
-                <div class="mb-4">
-                    <label for="id_quantity" class="form-label fw-semibold">
-                        <i class="bi bi-123 me-1"></i>Quantity
-                    </label>
-                    {{ form.quantity }}
-                    {% if form.quantity.errors %}
-                    <div class="invalid-feedback d-block">
-                        {{ form.quantity.errors.0 }}
+                    <!-- Medicine -->
+                    <div class="mb-3">
+                        <label for="id_medicine" class="form-label">
+                            <i class="bi bi-capsule me-1 text-crm-primary"></i>Medicine
+                        </label>
+                        {{ form.medicine }}
+                        {% if form.medicine.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.medicine.errors.0 }}
+                        </div>
+                        {% endif %}
+                        <div id="medicinePTR" class="form-text fw-semibold" style="display:none; color: var(--primary);"></div>
                     </div>
-                    {% endif %}
-                    <div id="liveValue" class="form-text text-success fw-bold" style="display:none;"></div>
-                </div>
 
-                <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="btnSubmit">
-                    <i class="bi bi-check-circle me-1"></i> Submit Entry
-                </button>
-            </form>
+                    <!-- Quantity -->
+                    <div class="mb-4">
+                        <label for="id_quantity" class="form-label">
+                            <i class="bi bi-123 me-1 text-crm-primary"></i>Quantity
+                        </label>
+                        {{ form.quantity }}
+                        {% if form.quantity.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.quantity.errors.0 }}
+                        </div>
+                        {% endif %}
+                        <div id="liveValue" class="form-text fw-bold text-positive" style="display:none;"></div>
+                    </div>
+
+                    <button type="submit" class="btn-submit" id="btnSubmit">
+                        <i class="bi bi-check-circle me-1"></i> Submit Entry
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 
     <!-- ─── ROI Info Panel ─────────────────────────── -->
     <div class="col-12 col-md-5 col-lg-4 mb-4">
-        <div class="card p-4" id="roiPanel" style="display:none;">
-            <h6 class="fw-bold mb-3">
-                <i class="bi bi-graph-up-arrow me-2 text-success"></i>Doctor ROI Summary
-            </h6>
-
-            <div class="mb-2 d-flex justify-content-between">
-                <span class="text-muted">Mode</span>
-                <span class="fw-semibold" id="roiMode">—</span>
+        <div class="data-card" id="roiPanel" style="display:none;">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-graph-up-arrow"></i> Doctor ROI Summary
+                </h5>
             </div>
-            <hr class="my-2">
+            <div class="data-card-body padded">
+                <div class="mb-2 d-flex justify-content-between">
+                    <span class="text-crm-muted">Mode</span>
+                    <span class="fw-semibold" id="roiMode">—</span>
+                </div>
+                <hr class="my-2" style="border-color: var(--border-color);">
 
-            <div id="roiDetails">
-                <div class="mb-2 d-flex justify-content-between">
-                    <span class="text-muted">Investment</span>
-                    <span class="fw-semibold" id="roiInvestment">—</span>
+                <div id="roiDetails">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Investment</span>
+                        <span class="fw-semibold" id="roiInvestment">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">ROI Target</span>
+                        <span class="fw-semibold" id="roiTarget">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Achieved</span>
+                        <span class="fw-semibold text-positive" id="roiAchieved">—</span>
+                    </div>
+                    <hr class="my-2" style="border-color: var(--border-color);">
+                    <div class="d-flex justify-content-between">
+                        <span class="fw-bold">Balance</span>
+                        <span class="fw-bold" id="roiBalance">—</span>
+                    </div>
                 </div>
-                <div class="mb-2 d-flex justify-content-between">
-                    <span class="text-muted">ROI Target</span>
-                    <span class="fw-semibold" id="roiTarget">—</span>
-                </div>
-                <div class="mb-2 d-flex justify-content-between">
-                    <span class="text-muted">Achieved</span>
-                    <span class="fw-semibold text-success" id="roiAchieved">—</span>
-                </div>
-                <hr class="my-2">
-                <div class="d-flex justify-content-between">
-                    <span class="fw-bold">Balance</span>
-                    <span class="fw-bold" id="roiBalance">—</span>
-                </div>
-            </div>
 
-            <!-- Progress bar -->
-            <div class="mt-3" id="roiProgressWrap" style="display:none;">
-                <div class="progress" style="height:8px; border-radius:4px;">
-                    <div class="progress-bar" id="roiProgressBar"
-                         role="progressbar" style="width:0%"></div>
+                <!-- Progress bar -->
+                <div class="mt-3" id="roiProgressWrap" style="display:none;">
+                    <div class="crm-progress">
+                        <div class="crm-progress-bar bg-crm-primary" id="roiProgressBar"
+                             style="width:0%"></div>
+                    </div>
+                    <small class="text-crm-muted" id="roiProgressLabel"></small>
                 </div>
-                <small class="text-muted" id="roiProgressLabel"></small>
             </div>
         </div>
 
         <!-- Recent Entries -->
-        <div class="card p-4 mt-3" id="recentPanel" style="display:none;">
-            <h6 class="fw-bold mb-3">
-                <i class="bi bi-clock-history me-2 text-info"></i>Recent Entries
-            </h6>
-            <div id="recentEntries"></div>
+        <div class="data-card mt-3" id="recentPanel" style="display:none;">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-clock-history"></i> Recent Entries
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                <div id="recentEntries"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -136,17 +149,14 @@
     const liveValue     = document.getElementById('liveValue');
     const progressWrap  = document.getElementById('roiProgressWrap');
 
-    // Medicine data cache { id: { name, ptr } }
     let medicineData = {};
 
-    // ── Doctor changed → fetch medicines + ROI ──────
     doctorSelect.addEventListener('change', function () {
         const doctorId = this.value;
         medicineData = {};
         medicinePTR.style.display = 'none';
         liveValue.style.display = 'none';
 
-        // Reset medicine dropdown
         medicineSelect.innerHTML = '<option value="">— Select Medicine —</option>';
         quantityInput.value = '';
 
@@ -158,7 +168,6 @@
         fetch(`/sales/api/medicines/${doctorId}/`)
             .then(r => r.json())
             .then(data => {
-                // Populate medicines
                 data.medicines.forEach(med => {
                     const opt = document.createElement('option');
                     opt.value = med.id;
@@ -167,7 +176,6 @@
                     medicineData[med.id] = med;
                 });
 
-                // Populate ROI panel
                 const roi = data.roi;
                 document.getElementById('roiMode').textContent = roi.mode;
 
@@ -181,15 +189,14 @@
                     const balEl = document.getElementById('roiBalance');
                     balEl.textContent = '₹' + formatNum(bal);
                     balEl.className = bal <= 0
-                        ? 'fw-bold text-success'
-                        : 'fw-bold text-danger';
+                        ? 'fw-bold text-positive'
+                        : 'fw-bold text-negative';
 
-                    // Progress bar
                     if (roi.roi_amount > 0) {
                         const pct = Math.min(100, (roi.achieved / roi.roi_amount) * 100);
                         const bar = document.getElementById('roiProgressBar');
                         bar.style.width = pct + '%';
-                        bar.className = 'progress-bar ' + (pct >= 100 ? 'bg-success' : 'bg-primary');
+                        bar.className = 'crm-progress-bar ' + (pct >= 100 ? 'bg-crm-success' : 'bg-crm-primary');
                         document.getElementById('roiProgressLabel').textContent =
                             pct.toFixed(1) + '% achieved';
                         progressWrap.style.display = '';
@@ -197,7 +204,6 @@
                         progressWrap.style.display = 'none';
                     }
                 } else {
-                    // Postpaid — only show achieved total
                     roiDetails.style.display = '';
                     document.getElementById('roiInvestment').textContent = 'N/A';
                     document.getElementById('roiTarget').textContent     = 'N/A';
@@ -211,7 +217,6 @@
             .catch(err => console.error('Failed to load medicines:', err));
     });
 
-    // ── Medicine changed → show PTR ─────────────────
     medicineSelect.addEventListener('change', function () {
         const med = medicineData[this.value];
         if (med) {
@@ -223,7 +228,6 @@
         updateLiveValue();
     });
 
-    // ── Quantity changed → live value calc ──────────
     quantityInput.addEventListener('input', updateLiveValue);
 
     function updateLiveValue() {

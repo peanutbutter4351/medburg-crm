@@ -2,488 +2,207 @@
 
 {% block title %}Sales Report — Medburg CRM{% endblock %}
 
-{% block extra_css %}
-<style>
-    /* ── Page Header ─────────────────────────────── */
-    .report-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 24px;
-    }
-    .report-header h1 {
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-    }
-    .report-header h1 i {
-        color: var(--primary);
-        margin-right: 8px;
-    }
-
-    /* ── Filter Bar ──────────────────────────────── */
-    .filter-bar {
-        background: #fff;
-        border-radius: 14px;
-        padding: 20px 24px;
-        box-shadow: 0 2px 16px rgba(67, 97, 238, .08);
-        margin-bottom: 24px;
-        border: 1px solid rgba(67, 97, 238, .08);
-    }
-    .filter-bar .form-label {
-        font-size: .78rem;
-        font-weight: 600;
-        color: #6c757d;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: 4px;
-    }
-    .filter-bar .form-control,
-    .filter-bar .form-select {
-        border-radius: 8px;
-        border: 1px solid #dee2e6;
-        font-size: .88rem;
-        padding: 8px 12px;
-        transition: border-color .2s, box-shadow .2s;
-    }
-    .filter-bar .form-control:focus,
-    .filter-bar .form-select:focus {
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(67, 97, 238, .12);
-    }
-    .filter-actions {
-        display: flex;
-        align-items: flex-end;
-        gap: 8px;
-    }
-    .btn-filter {
-        background: linear-gradient(135deg, var(--primary), #7209b7);
-        color: #fff;
-        border: none;
-        border-radius: 8px;
-        padding: 8px 20px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: transform .15s, box-shadow .2s;
-    }
-    .btn-filter:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(67, 97, 238, .35);
-        color: #fff;
-    }
-    .btn-clear {
-        background: #f0f2f5;
-        color: #495057;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        padding: 8px 16px;
-        font-size: .88rem;
-        font-weight: 500;
-        transition: background .15s;
-    }
-    .btn-clear:hover {
-        background: #e9ecef;
-        color: #212529;
-    }
-
-    /* ── Summary Cards ───────────────────────────── */
-    .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-    .summary-card {
-        background: #fff;
-        border-radius: 14px;
-        padding: 20px 22px;
-        box-shadow: 0 2px 12px rgba(0,0,0,.06);
-        position: relative;
-        overflow: hidden;
-        transition: transform .2s, box-shadow .2s;
-    }
-    .summary-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,.1);
-    }
-    .summary-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 4px;
-        height: 100%;
-        border-radius: 4px 0 0 4px;
-    }
-    .summary-card.investment::before { background: linear-gradient(180deg, #4361ee, #7209b7); }
-    .summary-card.achieved::before  { background: linear-gradient(180deg, #06d6a0, #1b9aaa); }
-    .summary-card.balance::before   { background: linear-gradient(180deg, #f72585, #b5179e); }
-    .summary-card.entries::before   { background: linear-gradient(180deg, #f9c74f, #f3722c); }
-    .summary-card.quantity::before  { background: linear-gradient(180deg, #90be6d, #2d6a4f); }
-    .summary-card.roi::before       { background: linear-gradient(180deg, #4895ef, #3f37c9); }
-
-    .summary-card .label {
-        font-size: .76rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .6px;
-        color: #8e99a4;
-        margin-bottom: 4px;
-    }
-    .summary-card .value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-    }
-    .summary-card .icon-badge {
-        position: absolute;
-        top: 16px;
-        right: 18px;
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        color: #fff;
-    }
-    .summary-card.investment .icon-badge { background: linear-gradient(135deg, #4361ee, #7209b7); }
-    .summary-card.achieved .icon-badge  { background: linear-gradient(135deg, #06d6a0, #1b9aaa); }
-    .summary-card.balance .icon-badge   { background: linear-gradient(135deg, #f72585, #b5179e); }
-    .summary-card.entries .icon-badge   { background: linear-gradient(135deg, #f9c74f, #f3722c); }
-    .summary-card.quantity .icon-badge  { background: linear-gradient(135deg, #90be6d, #2d6a4f); }
-    .summary-card.roi .icon-badge       { background: linear-gradient(135deg, #4895ef, #3f37c9); }
-
-    /* ── Table ────────────────────────────────────── */
-    .table-wrapper {
-        background: #fff;
-        border-radius: 14px;
-        box-shadow: 0 2px 16px rgba(67, 97, 238, .08);
-        overflow: hidden;
-        border: 1px solid rgba(67, 97, 238, .08);
-    }
-    .table-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 10px;
-        padding: 16px 24px 12px;
-        border-bottom: 1px solid #f0f2f5;
-    }
-    .table-header h5 {
-        margin: 0;
-        font-weight: 700;
-        color: #1a1a2e;
-        font-size: 1.05rem;
-    }
-    .table-header .badge-count {
-        background: linear-gradient(135deg, var(--primary), #7209b7);
-        color: #fff;
-        border-radius: 20px;
-        padding: 3px 12px;
-        font-size: .78rem;
-        font-weight: 600;
-        margin-left: 8px;
-    }
-    .btn-export {
-        background: linear-gradient(135deg, #06d6a0, #1b9aaa);
-        color: #fff;
-        border: none;
-        border-radius: 8px;
-        padding: 8px 20px;
-        font-weight: 600;
-        font-size: .85rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        transition: transform .15s, box-shadow .2s;
-        text-decoration: none;
-    }
-    .btn-export:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(6, 214, 160, .4);
-        color: #fff;
-    }
-    .report-table {
-        width: 100%;
-        margin: 0;
-        font-size: .85rem;
-    }
-    .report-table thead th {
-        background: #f8f9ff;
-        color: #495057;
-        font-weight: 700;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        padding: 12px 14px;
-        white-space: nowrap;
-        border-bottom: 2px solid #e8edff;
-    }
-    .report-table tbody td {
-        padding: 10px 14px;
-        vertical-align: middle;
-        color: #2d3436;
-        border-bottom: 1px solid #f5f6fa;
-        transition: background .15s;
-    }
-    .report-table tbody tr:hover td {
-        background: #f8f9ff;
-    }
-    .report-table .text-right {
-        text-align: right;
-    }
-    .report-table .text-center {
-        text-align: center;
-    }
-    .report-table .value-cell {
-        font-weight: 600;
-        font-variant-numeric: tabular-nums;
-        color: #1a1a2e;
-    }
-
-    /* ── Status badges ──────────────────────────────── */
-    .status-badge {
-        display: inline-block;
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: .74rem;
-        font-weight: 600;
-        letter-spacing: .3px;
-        white-space: nowrap;
-    }
-    .status-badge.completed {
-        background: rgba(6, 214, 160, .12);
-        color: #059669;
-    }
-    .status-badge.in-progress {
-        background: rgba(249, 199, 79, .18);
-        color: #b45309;
-    }
-    .status-badge.pending {
-        background: rgba(142, 153, 164, .14);
-        color: #6b7280;
-    }
-
-    /* ── Empty state ─────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        color: #8e99a4;
-    }
-    .empty-state i {
-        font-size: 3rem;
-        margin-bottom: 12px;
-        display: block;
-        opacity: .5;
-    }
-    .empty-state p {
-        font-size: 1rem;
-        margin: 0;
-    }
-
-    /* ── Responsive ──────────────────────────────── */
-    @media (max-width: 768px) {
-        .report-header { flex-direction: column; align-items: flex-start; }
-        .summary-grid { grid-template-columns: repeat(2, 1fr); }
-        .table-wrapper { overflow-x: auto; }
-        .filter-actions { flex-direction: column; width: 100%; }
-        .filter-actions .btn { width: 100%; }
-    }
-</style>
-{% endblock %}
+{% block page_title %}Reports{% endblock %}
+{% block page_subtitle %}Doctor-wise ROI sales report{% endblock %}
 
 {% block content %}
-<!-- ── Page header ────────────────────────────────── -->
-<div class="report-header">
-    <h1><i class="bi bi-file-earmark-bar-graph"></i>Sales Report</h1>
+
+<!-- ── Filter Bar ────────────────────────────────── -->
+<div class="filter-card">
+    <form method="get" id="report-filter-form">
+        <div class="row g-3 align-items-end">
+            <!-- Date range -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-from-date">From Date</label>
+                <input type="date"
+                       class="form-control"
+                       id="filter-from-date"
+                       name="from_date"
+                       value="{{ current_from_date }}">
+            </div>
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-to-date">To Date</label>
+                <input type="date"
+                       class="form-control"
+                       id="filter-to-date"
+                       name="to_date"
+                       value="{{ current_to_date }}">
+            </div>
+
+            <!-- Doctor -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-doctor">Doctor</label>
+                <select class="form-select" id="filter-doctor" name="doctor">
+                    <option value="">All Doctors</option>
+                    {% for doc in filter_options.doctors %}
+                    <option value="{{ doc.id }}"
+                        {% if current_doctor == doc.id %}selected{% endif %}>
+                        {{ doc.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Sales Rep -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-rep">Sales Rep</label>
+                <select class="form-select" id="filter-rep" name="rep">
+                    <option value="">All Reps</option>
+                    {% for r in filter_options.reps %}
+                    <option value="{{ r.id }}"
+                        {% if current_rep == r.id %}selected{% endif %}>
+                        {{ r.first_name }} {{ r.last_name }}{% if not r.first_name %} {{ r.username }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Medicine -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-medicine">Medicine</label>
+                <select class="form-select" id="filter-medicine" name="medicine">
+                    <option value="">All Medicines</option>
+                    {% for med in filter_options.medicines %}
+                    <option value="{{ med.id }}"
+                        {% if current_medicine == med.id %}selected{% endif %}>
+                        {{ med.name }}{% if med.brand %} ({{ med.brand }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-12 col-sm-6 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Apply
+                </button>
+                {% if has_filters %}
+                <a href="{% url 'reports:report' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-lg"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
 </div>
 
-<!-- ── Filter bar ────────────────────────────────── -->
-<form method="get" class="filter-bar" id="report-filter-form">
-    <div class="row g-3 align-items-end">
-        <!-- Date range -->
-        <div class="col-12 col-sm-6 col-md-2">
-            <label class="form-label" for="filter-from-date">From Date</label>
-            <input type="date"
-                   class="form-control"
-                   id="filter-from-date"
-                   name="from_date"
-                   value="{{ current_from_date }}">
+<!-- ── KPI Summary Cards ─────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Entries</div>
+            <div class="kpi-value">{{ summary.total_entries }}</div>
         </div>
-        <div class="col-12 col-sm-6 col-md-2">
-            <label class="form-label" for="filter-to-date">To Date</label>
-            <input type="date"
-                   class="form-control"
-                   id="filter-to-date"
-                   name="to_date"
-                   value="{{ current_to_date }}">
+        <div class="kpi-icon entries"><i class="bi bi-receipt"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Quantity</div>
+            <div class="kpi-value">{{ summary.total_quantity|floatformat:"0" }}</div>
         </div>
-
-        <!-- Doctor -->
-        <div class="col-12 col-sm-6 col-md-2">
-            <label class="form-label" for="filter-doctor">Doctor</label>
-            <select class="form-select" id="filter-doctor" name="doctor">
-                <option value="">All Doctors</option>
-                {% for doc in filter_options.doctors %}
-                <option value="{{ doc.id }}"
-                    {% if current_doctor == doc.id %}selected{% endif %}>
-                    {{ doc.name }}
-                </option>
-                {% endfor %}
-            </select>
+        <div class="kpi-icon quantity"><i class="bi bi-box-seam"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Investment</div>
+            <div class="kpi-value">₹{{ summary.total_investment|floatformat:"2" }}</div>
         </div>
-
-        <!-- Sales Rep -->
-        <div class="col-12 col-sm-6 col-md-2">
-            <label class="form-label" for="filter-rep">Sales Rep</label>
-            <select class="form-select" id="filter-rep" name="rep">
-                <option value="">All Reps</option>
-                {% for r in filter_options.reps %}
-                <option value="{{ r.id }}"
-                    {% if current_rep == r.id %}selected{% endif %}>
-                    {{ r.first_name }} {{ r.last_name }}{% if not r.first_name %} {{ r.username }}{% endif %}
-                </option>
-                {% endfor %}
-            </select>
+        <div class="kpi-icon investment"><i class="bi bi-cash-stack"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">ROI Target</div>
+            <div class="kpi-value">₹{{ summary.total_roi_amount|floatformat:"2" }}</div>
         </div>
-
-        <!-- Medicine -->
-        <div class="col-12 col-sm-6 col-md-2">
-            <label class="form-label" for="filter-medicine">Medicine</label>
-            <select class="form-select" id="filter-medicine" name="medicine">
-                <option value="">All Medicines</option>
-                {% for med in filter_options.medicines %}
-                <option value="{{ med.id }}"
-                    {% if current_medicine == med.id %}selected{% endif %}>
-                    {{ med.name }}{% if med.brand %} ({{ med.brand }}){% endif %}
-                </option>
-                {% endfor %}
-            </select>
+        <div class="kpi-icon target"><i class="bi bi-bullseye"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Achieved ROI</div>
+            <div class="kpi-value">₹{{ summary.total_value|floatformat:"2" }}</div>
         </div>
-
-        <!-- Buttons -->
-        <div class="col-12 col-sm-6 col-md-2 filter-actions">
-            <button type="submit" class="btn btn-filter">
-                <i class="bi bi-funnel"></i> Apply
-            </button>
-            {% if has_filters %}
-            <a href="{% url 'reports:report' %}" class="btn btn-clear">
-                <i class="bi bi-x-lg"></i> Clear
-            </a>
-            {% endif %}
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Balance ROI</div>
+            <div class="kpi-value">₹{{ summary.balance_roi|floatformat:"2" }}</div>
         </div>
-    </div>
-</form>
-
-<!-- ── Summary Cards ─────────────────────────────── -->
-<div class="summary-grid">
-    <div class="summary-card entries">
-        <div class="icon-badge"><i class="bi bi-receipt"></i></div>
-        <div class="label">Total Entries</div>
-        <div class="value">{{ summary.total_entries }}</div>
-    </div>
-    <div class="summary-card quantity">
-        <div class="icon-badge"><i class="bi bi-box-seam"></i></div>
-        <div class="label">Total Quantity</div>
-        <div class="value">{{ summary.total_quantity|floatformat:"0" }}</div>
-    </div>
-    <div class="summary-card investment">
-        <div class="icon-badge"><i class="bi bi-cash-stack"></i></div>
-        <div class="label">Total Investment</div>
-        <div class="value">₹{{ summary.total_investment|floatformat:"2" }}</div>
-    </div>
-    <div class="summary-card roi">
-        <div class="icon-badge"><i class="bi bi-bullseye"></i></div>
-        <div class="label">ROI Target</div>
-        <div class="value">₹{{ summary.total_roi_amount|floatformat:"2" }}</div>
-    </div>
-    <div class="summary-card achieved">
-        <div class="icon-badge"><i class="bi bi-graph-up-arrow"></i></div>
-        <div class="label">Achieved ROI</div>
-        <div class="value">₹{{ summary.total_value|floatformat:"2" }}</div>
-    </div>
-    <div class="summary-card balance">
-        <div class="icon-badge"><i class="bi bi-hourglass-split"></i></div>
-        <div class="label">Balance ROI</div>
-        <div class="value">₹{{ summary.balance_roi|floatformat:"2" }}</div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
     </div>
 </div>
 
-<!-- ── Doctor ROI Data Table ─────────────────────── -->
-<div class="table-wrapper">
-    <div class="table-header">
-        <h5>
-            <i class="bi bi-table me-1"></i>Doctor-wise ROI Report
-            <span class="badge-count">{{ roi_rows|length }}</span>
+<!-- ── Data Table ─────────────────────────────────── -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-table"></i> Doctor-wise ROI Report
+            <span class="count-badge">{{ roi_rows|length }}</span>
         </h5>
         {% if summary.total_entries > 0 %}
         <a href="{% url 'reports:export' %}?{{ request.GET.urlencode }}"
-           class="btn-export"
+           class="btn-crm-secondary"
            id="btn-export-excel">
             <i class="bi bi-file-earmark-excel"></i> Export to Excel
         </a>
         {% endif %}
     </div>
 
-    {% if roi_rows %}
-    <div class="table-responsive">
-        <table class="report-table" id="report-data-table">
-            <thead>
-                <tr>
-                    <th class="text-center">Sl No</th>
-                    <th>Doctor</th>
-                    <th>Area</th>
-                    <th>Type</th>
-                    <th>Medicine</th>
-                    <th>Sales Rep</th>
-                    <th class="text-center">Qty</th>
-                    <th class="text-right">Value (₹)</th>
-                    <th class="text-right">Investment (₹)</th>
-                    <th>Date</th>
-                    <th class="text-right">Balance (₹)</th>
-                    <th class="text-center">Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in roi_rows %}
-                <tr>
-                    <td class="text-center">{{ row.sl_no }}</td>
-                    <td>{{ row.doctor_name }}</td>
-                    <td>{{ row.location }}</td>
-                    <td>{{ row.doctor_type }}</td>
-                    <td>{{ row.medicine_name }}</td>
-                    <td>{{ row.rep_name }}</td>
-                    <td class="text-center">{{ row.quantity }}</td>
-                    <td class="text-right value-cell">₹{{ row.value|floatformat:"2" }}</td>
-                    <td class="text-right value-cell">₹{{ row.total_investment|floatformat:"2" }}</td>
-                    <td>{{ row.entry_date|date:"d M Y" }}</td>
-                    <td class="text-right value-cell">₹{{ row.balance_roi|floatformat:"2" }}</td>
-                    <td class="text-center">
-                        {% if row.status == "Completed" %}
-                        <span class="status-badge completed">Completed</span>
-                        {% elif row.status == "In Progress" %}
-                        <span class="status-badge in-progress">In Progress</span>
-                        {% else %}
-                        <span class="status-badge pending">Pending</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="data-card-body">
+        {% if roi_rows %}
+        <div class="table-responsive">
+            <table class="crm-table" id="report-data-table">
+                <thead>
+                    <tr>
+                        <th class="text-center">Sl No</th>
+                        <th>Doctor</th>
+                        <th>Area</th>
+                        <th>Type</th>
+                        <th>Medicine</th>
+                        <th>Sales Rep</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-right">Value (₹)</th>
+                        <th class="text-right">Investment (₹)</th>
+                        <th>Date</th>
+                        <th class="text-right">Balance (₹)</th>
+                        <th class="text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in roi_rows %}
+                    <tr>
+                        <td class="text-center text-crm-muted">{{ row.sl_no }}</td>
+                        <td><strong>{{ row.doctor_name }}</strong></td>
+                        <td>{{ row.location }}</td>
+                        <td>{{ row.doctor_type }}</td>
+                        <td>{{ row.medicine_name }}</td>
+                        <td>{{ row.rep_name }}</td>
+                        <td class="text-center">{{ row.quantity }}</td>
+                        <td class="text-right value-cell">₹{{ row.value|floatformat:"2" }}</td>
+                        <td class="text-right value-cell">₹{{ row.total_investment|floatformat:"2" }}</td>
+                        <td>{{ row.entry_date|date:"d M Y" }}</td>
+                        <td class="text-right value-cell">₹{{ row.balance_roi|floatformat:"2" }}</td>
+                        <td class="text-center">
+                            {% if row.status == "Completed" %}
+                            <span class="crm-badge completed">Completed</span>
+                            {% elif row.status == "In Progress" %}
+                            <span class="crm-badge in-progress">In Progress</span>
+                            {% else %}
+                            <span class="crm-badge pending">Pending</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p>No sales entries found for the selected filters.</p>
+        </div>
+        {% endif %}
     </div>
-    {% else %}
-    <div class="empty-state">
-        <i class="bi bi-inbox"></i>
-        <p>No sales entries found for the selected filters.</p>
-    </div>
-    {% endif %}
 </div>
+
 {% endblock %}

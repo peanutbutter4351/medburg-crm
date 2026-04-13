@@ -1,230 +1,119 @@
 {% extends "base.html" %}
 {% block title %}Doctor ROI Dashboard — Medburg CRM{% endblock %}
 
-{% block extra_css %}
-<style>
-    .summary-card {
-        border-radius: 12px;
-        padding: 1.25rem;
-        color: #fff;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .summary-card .icon {
-        position: absolute;
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 2.5rem;
-        opacity: .2;
-    }
-
-    .summary-card h3 {
-        font-size: 1.6rem;
-        font-weight: 700;
-        margin: 0;
-    }
-
-    .summary-card small {
-        opacity: .85;
-    }
-
-    .bg-gradient-primary {
-        background: linear-gradient(135deg, #4361ee, #7209b7);
-    }
-
-    .bg-gradient-success {
-        background: linear-gradient(135deg, #28a745, #20c997);
-    }
-
-    .bg-gradient-info {
-        background: linear-gradient(135deg, #17a2b8, #4361ee);
-    }
-
-    .bg-gradient-danger {
-        background: linear-gradient(135deg, #dc3545, #e83e8c);
-    }
-
-    /* Status badges */
-    .badge-status {
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: .3px;
-        white-space: nowrap;
-    }
-
-    .badge-completed {
-        background: #28a745;
-        color: #fff;
-    }
-
-    .badge-inprogress {
-        background: #17a2b8;
-        color: #fff;
-    }
-
-    .badge-pending {
-        background: #dc3545;
-        color: #fff;
-    }
-
-    .badge-noinvestment {
-        background: #ffc107;
-        color: #333;
-    }
-
-    .badge-postpaid {
-        background: #6c757d;
-        color: #fff;
-    }
-
-    /* Table styling */
-    .dashboard-table th {
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6c757d;
-        border-bottom: 2px solid #dee2e6;
-        white-space: nowrap;
-    }
-
-    .dashboard-table td {
-        vertical-align: middle;
-        font-size: 14px;
-    }
-
-    .dashboard-table tbody tr:hover {
-        background: #f0f4ff;
-    }
-
-    .text-positive {
-        color: #28a745;
-        font-weight: 600;
-    }
-
-    .text-negative {
-        color: #dc3545;
-        font-weight: 600;
-    }
-
-    /* Filter bar */
-    .filter-bar .form-select,
-    .filter-bar .form-control {
-        font-size: 14px;
-    }
-</style>
-{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}Doctor-wise ROI overview{% endblock %}
 
 {% block content %}
 
-<!-- ─── Summary Cards ──────────────────────────── -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3">
-        <div class="summary-card bg-gradient-primary">
-            <small>Total Doctors</small>
-            <h3>{{ summary.total_doctors }}</h3>
-            <span class="icon"><i class="bi bi-person-badge"></i></span>
+<!-- ─── KPI Cards ──────────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Doctors</div>
+            <div class="kpi-value">{{ summary.total_doctors }}</div>
         </div>
+        <div class="kpi-icon doctors"><i class="bi bi-person-badge"></i></div>
     </div>
-    <div class="col-6 col-lg-3">
-        <div class="summary-card bg-gradient-info">
-            <small>Total Investment</small>
-            <h3>₹{{ summary.total_investment|floatformat:0 }}</h3>
-            <span class="icon"><i class="bi bi-wallet2"></i></span>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Investment</div>
+            <div class="kpi-value">₹{{ summary.total_investment|floatformat:0 }}</div>
         </div>
+        <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
     </div>
-    <div class="col-6 col-lg-3">
-        <div class="summary-card bg-gradient-success">
-            <small>Total Achieved</small>
-            <h3>₹{{ summary.total_achieved|floatformat:0 }}</h3>
-            <span class="icon"><i class="bi bi-graph-up-arrow"></i></span>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Achieved</div>
+            <div class="kpi-value">₹{{ summary.total_achieved|floatformat:0 }}</div>
         </div>
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
     </div>
-    <div class="col-6 col-lg-3">
-        <div class="summary-card bg-gradient-danger">
-            <small>Total Balance</small>
-            <h3>₹{{ summary.total_balance|floatformat:0 }}</h3>
-            <span class="icon"><i class="bi bi-hourglass-split"></i></span>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Balance</div>
+            <div class="kpi-value">₹{{ summary.total_balance|floatformat:0 }}</div>
         </div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
     </div>
 </div>
 
 <!-- ─── Filter Bar ─────────────────────────────── -->
-<div class="card mb-4">
-    <div class="card-body py-3">
-        <form method="get" class="filter-bar">
-            <div class="row g-2 align-items-end">
-
-                <!-- Search -->
-                <div class="col-12 col-md-3">
-                    <label class="form-label mb-1 small fw-semibold">
-                        <i class="bi bi-search me-1"></i>Search
-                    </label>
-                    <input type="text" name="search" class="form-control" placeholder="Doctor, hospital, rep…"
-                        value="{{ current_search }}">
-                </div>
-
-                <!-- Rep filter -->
-                <div class="col-6 col-md-2">
-                    <label class="form-label mb-1 small fw-semibold">Rep</label>
-                    <select name="rep" class="form-select">
-                        <option value="">All Reps</option>
-                        {% for r in filters.reps %}
-                        <option value="{{ r.id }}" {% if current_rep    == r.id %}selected{% endif %}>
-                            {{ r.first_name }} {{ r.last_name|default:r.username }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <!-- Location filter -->
-                <div class="col-6 col-md-2">
-                    <label class="form-label mb-1 small fw-semibold">Location</label>
-                    <select name="location" class="form-select">
-                        <option value="">All Locations</option>
-                        {% for loc in filters.locations %}
-                        <option value="{{ loc }}" {% if current_location == loc %}selected{% endif %}>
-                            {{ loc }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <!-- Status filter -->
-                <div class="col-6 col-md-2">
-                    <label class="form-label mb-1 small fw-semibold">Status</label>
-                    <select name="status" class="form-select">
-                        <option value="">All Statuses</option>
-                        {% for s in filters.statuses %}
-                        <option value="{{ s }}" {% if current_status == s %}selected{% endif %}>
-                            {{ s }}     
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <!-- Buttons -->
-                <div class="col-6 col-md-3 d-flex gap-2">
-                    <button type="submit" class="btn btn-primary flex-fill">
-                        <i class="bi bi-funnel me-1"></i>Filter
-                    </button>
-                    <a href="{% url 'doctors:dashboard' %}" class="btn btn-outline-secondary flex-fill">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </a>
-                </div>
+<div class="filter-card">
+    <form method="get">
+        <div class="row g-3 align-items-end">
+            <!-- Search -->
+            <div class="col-12 col-md-3">
+                <label class="form-label">
+                    <i class="bi bi-search me-1"></i>Search
+                </label>
+                <input type="text" name="search" class="form-control" placeholder="Doctor, hospital, rep…"
+                    value="{{ current_search }}">
             </div>
-        </form>
-    </div>
+
+            <!-- Rep filter -->
+            <div class="col-6 col-md-2">
+                <label class="form-label">Rep</label>
+                <select name="rep" class="form-select">
+                    <option value="">All Reps</option>
+                    {% for r in filters.reps %}
+                    <option value="{{ r.id }}" {% if current_rep == r.id %}selected{% endif %}>
+                        {{ r.first_name }} {{ r.last_name|default:r.username }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Location filter -->
+            <div class="col-6 col-md-2">
+                <label class="form-label">Location</label>
+                <select name="location" class="form-select">
+                    <option value="">All Locations</option>
+                    {% for loc in filters.locations %}
+                    <option value="{{ loc }}" {% if current_location == loc %}selected{% endif %}>
+                        {{ loc }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status filter -->
+            <div class="col-6 col-md-2">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All Statuses</option>
+                    {% for s in filters.statuses %}
+                    <option value="{{ s }}" {% if current_status == s %}selected{% endif %}>
+                        {{ s }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-6 col-md-3 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Filter
+                </button>
+                <a href="{% url 'doctors:dashboard' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+            </div>
+        </div>
+    </form>
 </div>
 
 <!-- ─── Doctor Table ───────────────────────────── -->
-<div class="card">
-    <div class="card-body p-0">
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-table"></i> Doctors
+            <span class="count-badge">{{ doctors|length }}</span>
+        </h5>
+    </div>
+    <div class="data-card-body">
         <div class="table-responsive">
-            <table class="table table-hover dashboard-table mb-0">
+            <table class="crm-table" id="dashboard-table">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -232,10 +121,10 @@
                         <th>Location</th>
                         <th>Rep</th>
                         <th>Mode</th>
-                        <th class="text-end">Investment</th>
-                        <th class="text-end">ROI Target</th>
-                        <th class="text-end">Achieved</th>
-                        <th class="text-end">Balance</th>
+                        <th class="text-right">Investment</th>
+                        <th class="text-right">ROI Target</th>
+                        <th class="text-right">Achieved</th>
+                        <th class="text-right">Balance</th>
                         <th class="text-center">Progress</th>
                         <th class="text-center">Status</th>
                     </tr>
@@ -243,11 +132,11 @@
                 <tbody>
                     {% for doc in doctors %}
                     <tr>
-                        <td class="text-muted">{{ forloop.counter }}</td>
+                        <td class="text-crm-muted">{{ forloop.counter }}</td>
                         <td>
                             <strong>{{ doc.name }}</strong>
                             {% if doc.hospital %}
-                            <br><small class="text-muted">{{ doc.hospital }}</small>
+                            <br><small class="text-crm-muted">{{ doc.hospital }}</small>
                             {% endif %}
                         </td>
                         <td>{{ doc.location|default:"—" }}</td>
@@ -255,74 +144,64 @@
                             {% if doc.assigned_rep %}
                             {{ doc.assigned_rep.get_full_name|default:doc.assigned_rep.username }}
                             {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-crm-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge bg-{{ doc.mode|yesno:'primary,secondary' }} bg-opacity-10
-                                         text-{{ doc.mode|yesno:'primary,secondary' }}">
-                                {{ doc.get_mode_display }}
-                            </span>
-                        </td>
-                        <td class="text-end">
-                            {% if doc.total_investment %}
-                            ₹{{ doc.total_investment|floatformat:0 }}
+                            {% if doc.mode == "prepaid" %}
+                            <span class="crm-badge prepaid">Prepaid</span>
                             {% else %}
-                            —
+                            <span class="crm-badge postpaid">Postpaid</span>
                             {% endif %}
                         </td>
-                        <td class="text-end">
-                            {% if doc.total_roi_amount %}
-                            ₹{{ doc.total_roi_amount|floatformat:0 }}
-                            {% else %}
-                            —
-                            {% endif %}
+                        <td class="text-right value-cell">
+                            {% if doc.total_investment %}₹{{ doc.total_investment|floatformat:0 }}{% else %}—{% endif %}
                         </td>
-                        <td class="text-end text-positive">
+                        <td class="text-right value-cell">
+                            {% if doc.total_roi_amount %}₹{{ doc.total_roi_amount|floatformat:0 }}{% else %}—{% endif %}
+                        </td>
+                        <td class="text-right text-positive">
                             ₹{{ doc.achieved_roi|floatformat:0 }}
                         </td>
-                        <td
-                            class="text-end {% if doc.balance_roi > 0 %}text-negative{% else %}text-positive{% endif %}">
-                            {% if doc.mode == "postpaid" %}
-                            —
-                            {% else %}
-                            ₹{{ doc.balance_roi|floatformat:0 }}
-                            {% endif %}
+                        <td class="text-right {% if doc.balance_roi > 0 %}text-negative{% else %}text-positive{% endif %}">
+                            {% if doc.mode == "postpaid" %}—{% else %}₹{{ doc.balance_roi|floatformat:0 }}{% endif %}
                         </td>
 
-                        <!-- Progress bar cell -->
+                        <!-- Progress bar -->
                         <td style="min-width:100px;">
                             {% if doc.mode == "prepaid" and doc.total_roi_amount > 0 %}
-                            <div class="progress" style="height:6px; border-radius:3px;">
-                                <div class="progress-bar {% if doc.roi_status == 'Completed' %}bg-success{% elif doc.roi_status == 'In Progress' %}bg-info{% elif doc.roi_status == 'Pending' %}bg-danger{% else %}bg-secondary{% endif %}"
+                            <div class="crm-progress">
+                                <div class="crm-progress-bar {% if doc.roi_status == 'Completed' %}bg-crm-success{% elif doc.roi_status == 'In Progress' %}bg-crm-primary{% else %}bg-crm-danger{% endif %}"
                                     style="width: {{ doc.progress_pct }}%;"></div>
                             </div>
-                            <small class="text-muted">{{ doc.progress_pct }}%</small>
+                            <small class="text-crm-muted">{{ doc.progress_pct }}%</small>
                             {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-crm-muted">—</span>
                             {% endif %}
                         </td>
 
                         <!-- Status badge -->
                         <td class="text-center">
                             {% if doc.roi_status == "Completed" %}
-                            <span class="badge-status badge-completed">Completed</span>
+                            <span class="crm-badge completed">Completed</span>
                             {% elif doc.roi_status == "In Progress" %}
-                            <span class="badge-status badge-inprogress">In Progress</span>
+                            <span class="crm-badge in-progress">In Progress</span>
                             {% elif doc.roi_status == "Pending" %}
-                            <span class="badge-status badge-pending">Pending</span>
+                            <span class="crm-badge pending">Pending</span>
                             {% elif doc.roi_status == "No Investment" %}
-                            <span class="badge-status badge-noinvestment">No Investment</span>
+                            <span class="crm-badge no-investment">No Investment</span>
                             {% elif doc.roi_status == "Postpaid" %}
-                            <span class="badge-status badge-postpaid">Postpaid</span>
+                            <span class="crm-badge postpaid">Postpaid</span>
                             {% endif %}
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="11" class="text-center text-muted py-5">
-                            <i class="bi bi-inbox" style="font-size:2rem;"></i>
-                            <p class="mt-2 mb-0">No doctors found matching your filters.</p>
+                        <td colspan="11" class="text-center" style="padding: 60px 20px;">
+                            <div class="empty-state">
+                                <i class="bi bi-inbox"></i>
+                                <p>No doctors found matching your filters.</p>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -332,10 +211,10 @@
     </div>
 </div>
 
-<!-- ─── Count footer ───────────────────────────── -->
+<!-- Count footer -->
 {% if doctors %}
-<div class="text-muted text-end mt-2">
-    <small>Showing {{ doctors|length }} doctor{{ doctors|length|pluralize }}</small>
+<div class="text-crm-muted text-end mt-2" style="font-size:.82rem;">
+    Showing {{ doctors|length }} doctor{{ doctors|length|pluralize }}
 </div>
 {% endif %}
 
@@ -343,13 +222,10 @@
 
 {% block extra_js %}
 <script>
-    // Client-side instant search within loaded table rows
     (function () {
         const searchInput = document.querySelector('input[name="search"]');
         if (!searchInput) return;
-
-        // Add live client-side filtering on top of server filtering
-        const table = document.querySelector('.dashboard-table tbody');
+        const table = document.querySelector('#dashboard-table tbody');
         if (!table) return;
 
         searchInput.addEventListener('input', function () {

@@ -10,4 +10,4 @@ class LoginView(auth_views.LoginView):
 
 
 class LogoutView(auth_views.LogoutView):
-    pass
+    next_page = "accounts:login"
