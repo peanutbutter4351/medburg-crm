@@ -173,7 +173,7 @@
                     <select name="rep" class="form-select">
                         <option value="">All Reps</option>
                         {% for r in filters.reps %}
-                        <option value="{{ r.id }}" {% if current_rep == r.id %}selected{% endif %}>
+                        <option value="{{ r.id }}" {% if current_rep    == r.id %}selected{% endif %}>
                             {{ r.first_name }} {{ r.last_name|default:r.username }}
                         </option>
                         {% endfor %}
