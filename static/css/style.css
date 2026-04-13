@@ -85,18 +85,27 @@ body {
 }
 
 .sidebar-brand {
-    padding: 20px 24px;
+    padding: 24px 24px 20px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
     border-bottom: 1px solid rgba(255,255,255,.06);
 }
 
 .sidebar-brand .brand-logo-icon {
-    width: 54px;
-    height: 54px;
+    width: 80px;
+    height: 80px;
     border-radius: 12px;
     object-fit: contain;
+}
+
+.sidebar-brand .brand-text {
+    font-size: .78rem;
+    font-weight: 600;
+    color: rgba(255,255,255,.7);
+    letter-spacing: .8px;
+    text-transform: uppercase;
 }
 
 
