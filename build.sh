@@ -1,27 +1,37 @@
+#!/usr/bin/env bash
+
+echo "Installing dependencies..."
+pip install --upgrade pip
+pip install -r requirements.txt
+
+echo "Running migrations..."
+python manage.py migrate
+
+echo "Collecting static files..."
+python manage.py collectstatic --noinput
+
+echo "Creating/fixing admin user..."
 python manage.py shell << END
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-username = "admin"
-email = "info@medburgmedical.com"
-password = "MCRM@2026"
+user = User.objects.filter(username="admin").first()
 
-if not User.objects.filter(username=username).exists():
+if not user:
     user = User.objects.create_user(
-        username=username,
-        email=email,
-        password=password
+        username="admin",
+        email="info@medburgmedical.com",
+        password="MCRM@2026"
     )
-    user.is_staff = True
-    user.is_superuser = True
-    user.is_active = True
 
-    # OPTIONAL (if your model has role field)
-    if hasattr(user, "role"):
-        user.role = "admin"
+user.is_staff = True
+user.is_superuser = True
+user.is_active = True
 
-    user.save()
-    print("Superuser created properly")
-else:
-    print("User already exists")
+if hasattr(user, "role"):
+    user.role = "admin"
+
+user.save()
+
+print("Admin user ready")
 END
