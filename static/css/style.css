@@ -415,7 +415,10 @@ body {
     opacity: 1;
 }
 
-.kpi-card .kpi-info {}
+.kpi-card .kpi-info {
+    flex: 1;
+    min-width: 0;
+}
 
 .kpi-card .kpi-label {
     font-size: .76rem;
