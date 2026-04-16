@@ -3,16 +3,21 @@ Django settings for medburg_crm project.
 """
 
 import os
+import sys
 from pathlib import Path
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ──────────────────────────────────────────────
+# Security
+# ──────────────────────────────────────────────
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
     "django-insecure-change-me-in-production-!@#$%^&*()",
 )
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
+DEBUG = True
 
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
@@ -35,6 +40,9 @@ INSTALLED_APPS = [
     "reports.apps.ReportsConfig",
 ]
 
+# ──────────────────────────────────────────────
+# Middleware
+# ──────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -47,6 +55,9 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "medburg_crm.urls"
 
+# ──────────────────────────────────────────────
+# Templates
+# ──────────────────────────────────────────────
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -66,14 +77,18 @@ TEMPLATES = [
 WSGI_APPLICATION = "medburg_crm.wsgi.application"
 
 # ──────────────────────────────────────────────
-# Database — SQLite for dev, swap to PostgreSQL in production
+# Database (Render PostgreSQL support)
 # ──────────────────────────────────────────────
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+    )
 }
+
+# Only enforce SSL in production (not during local runserver)
+if not DEBUG and "runserver" not in sys.argv:
+    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
 
 # ──────────────────────────────────────────────
 # Auth
@@ -108,6 +123,17 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# ──────────────────────────────────────────────
+# Security (Production Only)
+# ──────────────────────────────────────────────
+if not DEBUG and "runserver" not in sys.argv:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # ──────────────────────────────────────────────
 # Default primary key
