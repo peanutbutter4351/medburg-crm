@@ -1,22 +1,27 @@
-#!/usr/bin/env bash
-
-echo "Installing dependencies..."
-pip install -r requirements.txt
-
-echo "Running migrations..."
-python manage.py migrate
-
-echo "Collecting static files..."
-python manage.py collectstatic --noinput
-
-echo "Creating superuser (if not exists)..."
 python manage.py shell << END
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-if not User.objects.filter(username="admin").exists():
-    User.objects.create_superuser("admin", "mail.saanthanuprasad@gmail.com", "admin123")
-    print("Superuser created")
+username = "admin"
+email = "info@medburgmedical.com"
+password = "MCRM@2026"
+
+if not User.objects.filter(username=username).exists():
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password
+    )
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
+
+    # OPTIONAL (if your model has role field)
+    if hasattr(user, "role"):
+        user.role = "admin"
+
+    user.save()
+    print("Superuser created properly")
 else:
-    print("Superuser already exists")
+    print("User already exists")
 END
