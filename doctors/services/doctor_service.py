@@ -11,7 +11,7 @@ from django.db.models import (
     Sum, F, Value, Case, When, CharField,
     DecimalField, IntegerField, Q,
 )
-from django.db.models.functions import Coalesce, Greatest, Least
+from django.db.models.functions import Coalesce, Least
 
 from doctors.models import Doctor
 
@@ -57,11 +57,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
             ),
         )
         .annotate(
-            balance_roi=Greatest(
-                F("total_roi_amount") - F("achieved_roi"),
-                Value(Decimal("0")),
-                output_field=DecimalField(),
-            ),
+            balance_roi=F("total_roi_amount") - F("achieved_roi"),
         )
         .annotate(
             roi_status=Case(
@@ -121,7 +117,7 @@ def get_dashboard_summary(queryset):
         "total_investment": agg["sum_investment"],
         "total_roi_target": agg["sum_roi_target"],
         "total_achieved": agg["sum_achieved"],
-        "total_balance": max(Decimal("0"), agg["sum_balance"]),
+        "total_balance": agg["sum_balance"],
     }
 
 
