@@ -15,4 +15,10 @@ urlpatterns = [
         views.api_medicines_for_doctor,
         name="api_medicines",
     ),
+    path("postpaid/", views.postpaid_list_view, name="postpaid"),
+    path(
+        "postpaid/<int:entry_id>/mark-paid/",
+        views.mark_as_paid_view,
+        name="mark_paid",
+    ),
 ]

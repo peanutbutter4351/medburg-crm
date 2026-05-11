@@ -717,6 +717,34 @@ body {
     border-color: var(--text-muted);
 }
 
+.btn-crm-mark-paid {
+    background: rgba(34,197,94,.1);
+    color: #16a34a;
+    border: 1px solid rgba(34,197,94,.25);
+    border-radius: var(--radius-sm);
+    padding: 5px 12px;
+    font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .25s cubic-bezier(.4,0,.2,1);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.btn-crm-mark-paid:hover {
+    background: var(--success);
+    color: #fff;
+    border-color: var(--success);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(34,197,94,.3);
+}
+
+.btn-crm-mark-paid:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(34,197,94,.2);
+}
 
 /* ── Filter Bar ────────────────────────────────── */
 .filter-card {

@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Postpaid Entries — Medburg CRM{% endblock %}
+
+{% block page_title %}Postpaid{% endblock %}
+{% block page_subtitle %}Track postpaid ROI entries and payment status{% endblock %}
+
+{% block content %}
+
+<!-- ── Filter Bar ────────────────────────────────── -->
+<div class="filter-card">
+    <form method="get" id="postpaid-filter-form">
+        <div class="row g-3 align-items-end">
+            <!-- Doctor -->
+            <div class="col-12 col-sm-6 col-md-3">
+                <label class="form-label" for="filter-doctor">Doctor</label>
+                <select class="form-select" id="filter-doctor" name="doctor">
+                    <option value="">All Doctors</option>
+                    {% for doc in filter_options.doctors %}
+                    <option value="{{ doc.id }}"
+                        {% if current_doctor == doc.id %}selected{% endif %}>
+                        {{ doc.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-status">Status</label>
+                <select class="form-select" id="filter-status" name="status">
+                    <option value="">All</option>
+                    {% for s in filter_options.statuses %}
+                    <option value="{{ s.value }}"
+                        {% if current_status == s.value %}selected{% endif %}>
+                        {{ s.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Search -->
+            <div class="col-12 col-sm-6 col-md-3">
+                <label class="form-label" for="filter-search">Search</label>
+                <input type="text"
+                       class="form-control"
+                       id="filter-search"
+                       name="search"
+                       placeholder="Doctor, medicine, remarks…"
+                       value="{{ current_search }}">
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-12 col-sm-6 col-md-4 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Apply
+                </button>
+                {% if has_filters %}
+                <a href="{% url 'sales:postpaid' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-lg"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ── KPI Summary Cards ─────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Entries</div>
+            <div class="kpi-value">{{ summary.total_entries }}</div>
+        </div>
+        <div class="kpi-icon entries"><i class="bi bi-receipt"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Amount</div>
+            <div class="kpi-value">₹{{ summary.total_amount|floatformat:"2" }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-cash-stack"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Paid</div>
+            <div class="kpi-value text-positive">₹{{ summary.paid_amount|floatformat:"2" }}</div>
+            <div class="kpi-sub">{{ summary.paid_count }} entr{{ summary.paid_count|pluralize:"y,ies" }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-check-circle"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Unpaid</div>
+            <div class="kpi-value text-negative">₹{{ summary.unpaid_amount|floatformat:"2" }}</div>
+            <div class="kpi-sub">{{ summary.unpaid_count }} entr{{ summary.unpaid_count|pluralize:"y,ies" }}</div>
+        </div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
+    </div>
+</div>
+
+<!-- ── Data Table ─────────────────────────────────── -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-table"></i> Postpaid Entries
+            <span class="count-badge">{{ entries|length }}</span>
+        </h5>
+    </div>
+
+    <div class="data-card-body">
+        {% if entries %}
+        <div class="table-responsive">
+            <table class="crm-table" id="postpaid-data-table">
+                <thead>
+                    <tr>
+                        <th class="text-center">#</th>
+                        <th>Doctor</th>
+                        <th>Medicine</th>
+                        <th>Scope</th>
+                        <th class="text-right">ROI %</th>
+                        <th class="text-right">Amount (₹)</th>
+                        <th class="text-center">Status</th>
+                        <th>Payment Date</th>
+                        <th>Remarks</th>
+                        <th>Created</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr>
+                        <td class="text-center text-crm-muted">{{ forloop.counter }}</td>
+                        <td><strong>{{ entry.doctor.name }}</strong></td>
+                        <td>{{ entry.medicine }}</td>
+                        <td><span class="crm-badge postpaid">{{ entry.scope_display }}</span></td>
+                        <td class="text-right value-cell">{{ entry.roi_percentage|floatformat:"2" }}%</td>
+                        <td class="text-right value-cell">₹{{ entry.amount|floatformat:"2" }}</td>
+                        <td class="text-center">
+                            {% if entry.is_paid %}
+                            <span class="crm-badge completed">Paid</span>
+                            {% else %}
+                            <span class="crm-badge pending">Unpaid</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if entry.payment_date %}
+                                {{ entry.payment_date|date:"d M Y" }}
+                            {% else %}
+                                <span class="text-crm-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if entry.remarks %}
+                                {{ entry.remarks|truncatewords:8 }}
+                            {% else %}
+                                <span class="text-crm-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ entry.created_at|date:"d M Y" }}</td>
+                        <td class="text-center">
+                            {% if not entry.is_paid %}
+                            <form method="post"
+                                  action="{% url 'sales:mark_paid' entry.id %}"
+                                  style="display:inline"
+                                  onsubmit="return confirm('Mark this entry as paid?')">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-crm-mark-paid" title="Mark as Paid">
+                                    <i class="bi bi-check2-circle"></i> Pay
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-positive"><i class="bi bi-check-circle-fill"></i></span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p>No postpaid entries found for the selected filters.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

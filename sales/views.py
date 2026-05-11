@@ -1,11 +1,12 @@
 """
-Sales views — entry form + AJAX endpoints.
+Sales views — entry form, AJAX endpoints, and postpaid listing.
 """
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_POST
 
 from doctors.models import Doctor
 
@@ -14,6 +15,12 @@ from .services.sales_service import (
     create_sales_entry,
     get_doctor_roi_summary,
     get_medicines_for_doctor,
+)
+from .services.postpaid_service import (
+    get_postpaid_queryset,
+    get_postpaid_summary,
+    get_postpaid_filter_options,
+    mark_as_paid,
 )
 
 
@@ -60,3 +67,66 @@ def api_medicines_for_doctor(request, doctor_id):
         "medicines": medicines,
         "roi": roi_summary,
     })
+
+
+@login_required
+def postpaid_list_view(request):
+    """
+    Postpaid entries listing page with filters and summary cards.
+    """
+    # ── Collect filter params ────────────────────────
+    doctor_id_raw = request.GET.get("doctor", "")
+    try:
+        doctor_id = int(doctor_id_raw) if doctor_id_raw else None
+    except (ValueError, TypeError):
+        doctor_id = None
+
+    status = request.GET.get("status", "")
+    search = request.GET.get("search", "").strip()
+
+    # ── Fetch data via service ───────────────────────
+    entries = get_postpaid_queryset(
+        doctor_id=doctor_id or None,
+        status=status or None,
+        search=search or None,
+    )
+    summary = get_postpaid_summary(entries)
+    filter_options = get_postpaid_filter_options()
+
+    context = {
+        "entries": entries,
+        "summary": summary,
+        "filter_options": filter_options,
+        # Sticky filter values
+        "current_doctor": doctor_id,
+        "current_status": status,
+        "current_search": search,
+        "has_filters": any([doctor_id, status, search]),
+    }
+
+    return render(request, "sales/postpaid_list.html", context)
+
+
+@login_required
+@require_POST
+def mark_as_paid_view(request, entry_id):
+    """
+    Mark a postpaid entry as paid.
+
+    POST-only with CSRF protection.  Redirects back to the
+    postpaid list with a success or error message.
+    """
+    from sales.models import PostpaidEntry
+
+    try:
+        entry = mark_as_paid(entry_id)
+        messages.success(
+            request,
+            f"✅ Marked as paid — {entry.doctor.name} | "
+            f"{entry.medicine.name} (₹{entry.amount:,.2f})",
+        )
+    except PostpaidEntry.DoesNotExist:
+        messages.error(request, "Entry not found.")
+
+    return redirect("sales:postpaid")
+

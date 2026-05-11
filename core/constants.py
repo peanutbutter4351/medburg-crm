@@ -38,3 +38,17 @@ ROLE_CHOICES = [
     (ROLE_ADMIN, "Admin"),
     (ROLE_REP, "Sales Representative"),
 ]
+
+# ──────────────────────────────────────────────
+# Postpaid payout type
+# ──────────────────────────────────────────────
+PAYOUT_TYPE_RANGE = "range"
+PAYOUT_TYPE_MONTHLY = "monthly"
+PAYOUT_TYPE_CAMPAIGN = "campaign"
+
+PAYOUT_TYPE_CHOICES = [
+    (PAYOUT_TYPE_RANGE, "Date Range"),
+    (PAYOUT_TYPE_MONTHLY, "Monthly"),
+    (PAYOUT_TYPE_CAMPAIGN, "Campaign"),
+]
+
