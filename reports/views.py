@@ -7,9 +7,10 @@ Views are thin: parse request params, call service, render / respond.
 
 from datetime import datetime
 
-from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import render
+
+from core.decorators import admin_required
 
 from .services.report_service import (
     export_to_excel,
@@ -60,7 +61,7 @@ def _parse_filters(request):
     }
 
 
-@login_required
+@admin_required
 def report_view(request):
     """
     Sales report page with filters, data table, and summary cards.
@@ -88,7 +89,7 @@ def report_view(request):
     return render(request, "reports/report.html", context)
 
 
-@login_required
+@admin_required
 def export_report_view(request):
     """
     Excel export endpoint.

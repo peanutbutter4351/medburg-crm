@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 
+from core.decorators import admin_required
 from doctors.models import Doctor
 
 from .forms import SalesEntryForm
@@ -70,7 +71,7 @@ def api_medicines_for_doctor(request, doctor_id):
     })
 
 
-@login_required
+@admin_required
 def postpaid_list_view(request):
     """
     Postpaid entries listing page with filters and summary cards.
@@ -108,7 +109,7 @@ def postpaid_list_view(request):
     return render(request, "sales/postpaid_list.html", context)
 
 
-@login_required
+@admin_required
 @require_POST
 def mark_as_paid_view(request, entry_id):
     """

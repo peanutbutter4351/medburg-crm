@@ -124,7 +124,6 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("doctor", "medicine")
     list_per_page = 30
-    list_editable = ("payment_status",)
     readonly_fields = ("amount", "total_sales_value", "get_balance_display")
     actions = ["recalculate_amounts", "mark_fully_paid"]
 
@@ -208,6 +207,29 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     @admin.display(description="Scope")
     def get_scope(self, obj):
         return obj.scope_display
+
+    def save_model(self, request, obj, form, change):
+        """
+        Auto-sync paid_amount when payment_status is changed via admin.
+
+        If an admin sets status to 'paid' in the detail form, we
+        automatically set paid_amount = amount to keep them consistent.
+        This prevents the data inconsistency where status='paid' but
+        paid_amount is still 0.
+        """
+        from core.constants import PAYMENT_STATUS_PAID, PAYMENT_STATUS_UNPAID
+
+        if change and "payment_status" in form.changed_data:
+            if obj.payment_status == PAYMENT_STATUS_PAID:
+                obj.paid_amount = obj.amount
+                if not obj.payment_date:
+                    from datetime import date
+                    obj.payment_date = date.today()
+            elif obj.payment_status == PAYMENT_STATUS_UNPAID:
+                obj.paid_amount = 0
+                obj.payment_date = None
+
+        super().save_model(request, obj, form, change)
 
     @admin.action(description="Recalculate amount from current sales data")
     def recalculate_amounts(self, request, queryset):

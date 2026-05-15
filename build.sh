@@ -12,26 +12,32 @@ python manage.py collectstatic --noinput
 
 echo "Creating/fixing admin user..."
 python manage.py shell << END
+import os
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-user = User.objects.filter(username="admin").first()
+admin_password = os.environ.get("DJANGO_ADMIN_PASSWORD")
 
-if not user:
-    user = User.objects.create_user(
-        username="admin",
-        email="info@medburgmedical.com",
-        password="MCRM@2026"
-    )
+if not admin_password:
+    print("WARNING: DJANGO_ADMIN_PASSWORD not set, skipping admin user creation.")
+else:
+    user = User.objects.filter(username="admin").first()
 
-user.is_staff = True
-user.is_superuser = True
-user.is_active = True
+    if not user:
+        user = User.objects.create_user(
+            username="admin",
+            email="info@medburgmedical.com",
+            password=admin_password,
+        )
 
-if hasattr(user, "role"):
-    user.role = "admin"
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
 
-user.save()
+    if hasattr(user, "role"):
+        user.role = "admin"
 
-print("Admin user ready")
+    user.save()
+
+    print("Admin user ready")
 END

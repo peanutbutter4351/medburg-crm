@@ -2,8 +2,9 @@
 Doctor views — ROI Dashboard.
 """
 
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
+
+from core.decorators import admin_required
 
 from .services.doctor_service import (
     get_dashboard_queryset,
@@ -12,7 +13,7 @@ from .services.doctor_service import (
 )
 
 
-@login_required
+@admin_required
 def doctor_dashboard(request):
     """
     Admin-facing doctor ROI dashboard.

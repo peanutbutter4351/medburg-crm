@@ -348,10 +348,11 @@ class PostpaidEntry(BaseModel):
         payout amount is never silently altered by changed PTR or new sales.
         Use recalculate_amount() if an explicit recomputation is needed.
         """
-        self.full_clean()
-
-        # Only compute on creation — not on subsequent updates
+        # Only run full validation on creation — subsequent updates
+        # (e.g. payment status changes) go through admin or service
+        # methods that handle their own consistency checks.
         if self._state.adding:
+            self.full_clean()
             self._compute_amount()
 
         super().save(*args, **kwargs)
@@ -376,17 +377,27 @@ class PostpaidEntry(BaseModel):
         Uses queryset.update() to avoid triggering save() override.
 
         Returns self (refreshed from DB).
+
+        Raises ValidationError for invalid input, negative amounts,
+        or overpayments.
         """
         from datetime import date
+        import decimal
 
-        payment_amount = Decimal(str(payment_amount))
+        try:
+            payment_amount = Decimal(str(payment_amount))
+        except (decimal.InvalidOperation, ValueError):
+            raise ValidationError(
+                {"paid_amount": "Invalid payment amount. Please enter a valid number."}
+            )
+
         if payment_amount <= Decimal("0"):
             raise ValidationError({"paid_amount": "Payment amount must be positive."})
 
         new_paid = self.paid_amount + payment_amount
         if new_paid > self.amount:
             raise ValidationError(
-                {"paid_amount": f"Payment of ₹{payment_amount} would exceed balance of ₹{self.balance_amount}."}
+                {"paid_amount": f"Payment of \u20b9{payment_amount} would exceed balance of \u20b9{self.balance_amount}."}
             )
 
         if new_paid >= self.amount:

@@ -10,10 +10,12 @@ from decimal import Decimal
 from django.db.models import (
     Sum, F, Value, Case, When, CharField,
     DecimalField, IntegerField, Q,
+    OuterRef, Subquery,
 )
 from django.db.models.functions import Coalesce, Least
 
 from doctors.models import Doctor
+from sales.models import SalesEntry
 
 
 def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=None):
@@ -28,7 +30,21 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
     achieved_roi      – Σ (sales_entries.quantity × sales_entries.medicine.ptr)
     balance_roi       – total_roi_amount − achieved_roi
     roi_status        – Completed / In Progress / Pending / No Investment / Postpaid
+
+    Note: achieved_roi uses a Subquery to avoid cross-join inflation
+    when a doctor has both multiple investments and multiple sales entries.
     """
+
+    # Subquery: compute achieved ROI per doctor independently of investments
+    achieved_subquery = (
+        SalesEntry.objects
+        .filter(doctor_id=OuterRef("pk"))
+        .values("doctor_id")
+        .annotate(
+            total=Sum(F("quantity") * F("medicine__ptr")),
+        )
+        .values("total")[:1]
+    )
 
     qs = (
         Doctor.objects
@@ -49,9 +65,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
                 output_field=DecimalField(),
             ),
             achieved_roi=Coalesce(
-                Sum(
-                    F("sales_entries__quantity") * F("sales_entries__medicine__ptr"),
-                ),
+                Subquery(achieved_subquery, output_field=DecimalField()),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
