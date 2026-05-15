@@ -12,8 +12,10 @@ PostpaidEntry
 ─────────────
 • Records ROI payments for doctors in postpaid mode.
 • Linked to a Doctor and Medicine with roi_percentage.
-• amount is auto-computed from scoped SalesEntry data on save().
+• amount is auto-computed from scoped SalesEntry data on **first save only**.
+• total_sales_value stores the sales snapshot used in calculation (audit trail).
 • Supports three payout scopes: date range, monthly, campaign.
+• Unique constraints prevent duplicate payouts for the same scope.
 • Tracks payment status via is_paid / payment_date.
 """
 
@@ -88,10 +90,22 @@ class SalesEntry(BaseModel):
         """Calculated value = quantity × PTR of the medicine."""
         return self.quantity * self.medicine.ptr
 
+    @property
+    def total_value(self):
+        """Alias for value — used by aggregation queries."""
+        return self.value
+
 
 class PostpaidEntry(BaseModel):
     """
     A postpaid ROI entry for a doctor.
+
+    Financial integrity
+    ───────────────────
+    • amount is computed **once** on initial save and never recalculated.
+    • total_sales_value stores the raw sales total used in the calculation
+      as an auditable snapshot.
+    • Unique constraints per payout type prevent duplicate payouts.
 
     Payout scopes
     ─────────────
@@ -99,7 +113,7 @@ class PostpaidEntry(BaseModel):
     monthly  → amount computed from SalesEntry in a specific month/year
     campaign → amount computed from all SalesEntry (no date filter)
 
-    amount = Σ (SalesEntry.quantity × Medicine.ptr) × (roi_percentage / 100)
+    amount = Σ SalesEntry.total_value × (roi_percentage / 100)
     """
 
     doctor = models.ForeignKey(
@@ -147,13 +161,20 @@ class PostpaidEntry(BaseModel):
         help_text="Year for monthly payout type.",
     )
 
-    # ── Computed on save ────────────────────────────
+    # ── Computed on first save ──────────────────────
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal("0"),
         editable=False,
-        help_text="Auto-calculated: scoped sales value × ROI%.",
+        help_text="Auto-calculated on creation: scoped sales value × ROI%. Frozen after first save.",
+    )
+    total_sales_value = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+        help_text="Snapshot of the total sales value used to compute amount.",
     )
 
     # ── Payment tracking ────────────────────────────
@@ -176,6 +197,26 @@ class PostpaidEntry(BaseModel):
         verbose_name = "Postpaid Entry"
         verbose_name_plural = "Postpaid Entries"
         ordering = ["-created_at"]
+        constraints = [
+            # Prevent duplicate payouts for the same doctor+medicine+scope.
+            # One constraint per payout type using condition= to handle
+            # the different nullable scope fields cleanly.
+            models.UniqueConstraint(
+                fields=["doctor", "medicine", "payout_type", "start_date", "end_date"],
+                condition=models.Q(payout_type="range"),
+                name="unique_postpaid_range",
+            ),
+            models.UniqueConstraint(
+                fields=["doctor", "medicine", "payout_type", "payout_month", "payout_year"],
+                condition=models.Q(payout_type="monthly"),
+                name="unique_postpaid_monthly",
+            ),
+            models.UniqueConstraint(
+                fields=["doctor", "medicine", "payout_type"],
+                condition=models.Q(payout_type="campaign"),
+                name="unique_postpaid_campaign",
+            ),
+        ]
 
     def __str__(self):
         status = "Paid" if self.is_paid else "Unpaid"
@@ -209,7 +250,7 @@ class PostpaidEntry(BaseModel):
         if errors:
             raise ValidationError(errors)
 
-    # ── Auto-compute amount on save ─────────────────
+    # ── Auto-compute amount on first save ───────────
     def _get_scoped_sales_qs(self):
         """
         Return a SalesEntry queryset filtered by doctor + medicine
@@ -234,19 +275,52 @@ class PostpaidEntry(BaseModel):
 
         return qs
 
-    def save(self, *args, **kwargs):
-        """Compute amount from scoped sales, then save."""
-        self.full_clean()
+    def _compute_amount(self):
+        """
+        Aggregate scoped SalesEntry.total_value and apply ROI%.
 
-        total_value = self._get_scoped_sales_qs().aggregate(
+        Uses the annotation  quantity × medicine__ptr  which mirrors
+        the SalesEntry.total_value property at the DB level.
+
+        Sets both total_sales_value (snapshot) and amount.
+        """
+        self.total_sales_value = self._get_scoped_sales_qs().aggregate(
             total=Coalesce(
                 Sum(F("quantity") * F("medicine__ptr")),
                 Decimal("0"),
             ),
         )["total"]
 
-        self.amount = total_value * (self.roi_percentage / Decimal("100"))
+        self.amount = self.total_sales_value * (
+            self.roi_percentage / Decimal("100")
+        )
+
+    def save(self, *args, **kwargs):
+        """
+        Compute amount from scoped sales on **first save only**, then persist.
+
+        Subsequent saves (e.g. marking as paid) skip recalculation so the
+        payout amount is never silently altered by changed PTR or new sales.
+        Use recalculate_amount() if an explicit recomputation is needed.
+        """
+        self.full_clean()
+
+        # Only compute on creation — not on subsequent updates
+        if self._state.adding:
+            self._compute_amount()
+
         super().save(*args, **kwargs)
+
+    def recalculate_amount(self):
+        """
+        Explicitly recompute and save the amount.
+
+        Call this when an admin intentionally wants to refresh the
+        payout based on current sales data.  This is the only path
+        that recalculates after initial save.
+        """
+        self._compute_amount()
+        super().save(update_fields=["amount", "total_sales_value", "updated_at"])
 
     # ── Human-readable scope label ──────────────────
     @property

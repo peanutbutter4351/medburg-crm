@@ -103,6 +103,7 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
         "payout_type",
         "get_scope",
         "roi_percentage",
+        "get_total_sales",
         "get_amount",
         "is_paid",
         "payment_date",
@@ -122,7 +123,8 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     autocomplete_fields = ("doctor", "medicine")
     list_per_page = 30
     list_editable = ("is_paid",)
-    readonly_fields = ("amount",)
+    readonly_fields = ("amount", "total_sales_value")
+    actions = ["recalculate_amounts"]
 
     fieldsets = (
         (
@@ -152,8 +154,12 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
         (
             "Calculated Amount",
             {
-                "fields": ("amount",),
-                "description": "Auto-computed on save from scoped sales × ROI%.",
+                "fields": ("total_sales_value", "amount"),
+                "description": (
+                    "Auto-computed on creation from scoped sales × ROI%. "
+                    "Frozen after first save. Use the 'Recalculate amount' "
+                    "action to refresh."
+                ),
             },
         ),
         (
@@ -175,8 +181,24 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     def get_amount(self, obj):
         return f"₹{obj.amount:,.2f}"
 
+    @admin.display(description="Sales Total (₹)")
+    def get_total_sales(self, obj):
+        return f"₹{obj.total_sales_value:,.2f}"
+
     @admin.display(description="Scope")
     def get_scope(self, obj):
         return obj.scope_display
+
+    @admin.action(description="Recalculate amount from current sales data")
+    def recalculate_amounts(self, request, queryset):
+        """Admin action to explicitly recompute amounts."""
+        count = 0
+        for entry in queryset:
+            entry.recalculate_amount()
+            count += 1
+        self.message_user(
+            request,
+            f"Recalculated {count} entr{'y' if count == 1 else 'ies'}.",
+        )
 
 
