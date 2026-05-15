@@ -16,7 +16,8 @@ PostpaidEntry
 • total_sales_value stores the sales snapshot used in calculation (audit trail).
 • Supports three payout scopes: date range, monthly, campaign.
 • Unique constraints prevent duplicate payouts for the same scope.
-• Tracks payment status via is_paid / payment_date.
+• payment_status tracks unpaid → partial → paid lifecycle.
+• paid_amount tracks the actual amount disbursed (supports partial payments).
 """
 
 from decimal import Decimal
@@ -28,6 +29,10 @@ from django.db.models import F, Sum
 from django.db.models.functions import Coalesce
 
 from core.constants import (
+    PAYMENT_STATUS_CHOICES,
+    PAYMENT_STATUS_PAID,
+    PAYMENT_STATUS_PARTIAL,
+    PAYMENT_STATUS_UNPAID,
     PAYOUT_TYPE_CAMPAIGN,
     PAYOUT_TYPE_CHOICES,
     PAYOUT_TYPE_MONTHLY,
@@ -107,6 +112,13 @@ class PostpaidEntry(BaseModel):
       as an auditable snapshot.
     • Unique constraints per payout type prevent duplicate payouts.
 
+    Payment lifecycle
+    ─────────────────
+    unpaid → partial → paid
+    • payment_status replaces the old is_paid boolean.
+    • paid_amount tracks the actual disbursement (supports partial payments).
+    • balance_amount = amount − paid_amount.
+
     Payout scopes
     ─────────────
     range    → amount computed from SalesEntry within [start_date, end_date]
@@ -178,15 +190,23 @@ class PostpaidEntry(BaseModel):
     )
 
     # ── Payment tracking ────────────────────────────
-    is_paid = models.BooleanField(
-        default=False,
+    payment_status = models.CharField(
+        max_length=10,
+        choices=PAYMENT_STATUS_CHOICES,
+        default=PAYMENT_STATUS_UNPAID,
         db_index=True,
-        help_text="Whether this entry has been paid.",
+        help_text="Payment lifecycle: unpaid → partial → paid.",
+    )
+    paid_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Actual amount paid so far. May be less than amount for partial payments.",
     )
     payment_date = models.DateField(
         null=True,
         blank=True,
-        help_text="Date of payment, if paid.",
+        help_text="Date of the most recent payment.",
     )
     remarks = models.TextField(
         blank=True,
@@ -219,18 +239,34 @@ class PostpaidEntry(BaseModel):
         ]
 
     def __str__(self):
-        status = "Paid" if self.is_paid else "Unpaid"
         return (
             f"{self.doctor.name} | {self.medicine.name} "
-            f"– ₹{self.amount} ({status})"
+            f"– ₹{self.amount} ({self.get_payment_status_display()})"
         )
+
+    # ── Backward-compatible properties ──────────────
+    @property
+    def is_paid(self):
+        """Backward compat: True when fully paid."""
+        return self.payment_status == PAYMENT_STATUS_PAID
+
+    @property
+    def is_partial(self):
+        """True when partially paid."""
+        return self.payment_status == PAYMENT_STATUS_PARTIAL
+
+    @property
+    def balance_amount(self):
+        """Remaining amount to be paid."""
+        return self.amount - self.paid_amount
 
     # ── Validation ──────────────────────────────────
     def clean(self):
-        """Validate that required scope fields are present."""
+        """Validate scope fields and payment consistency."""
         super().clean()
         errors = {}
 
+        # Payout scope validation
         if self.payout_type == PAYOUT_TYPE_RANGE:
             if not self.start_date:
                 errors["start_date"] = "Start date is required for date-range payout."
@@ -246,6 +282,15 @@ class PostpaidEntry(BaseModel):
                 errors["payout_month"] = "Month must be between 1 and 12."
             if not self.payout_year:
                 errors["payout_year"] = "Year is required for monthly payout."
+
+        # Payment validation
+        if self.paid_amount < Decimal("0"):
+            errors["paid_amount"] = "Paid amount cannot be negative."
+        elif self.amount and self.paid_amount > self.amount:
+            errors["paid_amount"] = "Paid amount cannot exceed the entry amount."
+
+        if self.payment_status == PAYMENT_STATUS_PAID and self.paid_amount <= Decimal("0"):
+            errors["paid_amount"] = "Paid amount is required when status is fully paid."
 
         if errors:
             raise ValidationError(errors)
@@ -321,6 +366,41 @@ class PostpaidEntry(BaseModel):
         """
         self._compute_amount()
         super().save(update_fields=["amount", "total_sales_value", "updated_at"])
+
+    def record_payment(self, payment_amount):
+        """
+        Record a payment against this entry.
+
+        Automatically sets payment_status to 'partial' or 'paid'
+        based on the cumulative paid_amount vs amount.
+        Uses queryset.update() to avoid triggering save() override.
+
+        Returns self (refreshed from DB).
+        """
+        from datetime import date
+
+        payment_amount = Decimal(str(payment_amount))
+        if payment_amount <= Decimal("0"):
+            raise ValidationError({"paid_amount": "Payment amount must be positive."})
+
+        new_paid = self.paid_amount + payment_amount
+        if new_paid > self.amount:
+            raise ValidationError(
+                {"paid_amount": f"Payment of ₹{payment_amount} would exceed balance of ₹{self.balance_amount}."}
+            )
+
+        if new_paid >= self.amount:
+            new_status = PAYMENT_STATUS_PAID
+        else:
+            new_status = PAYMENT_STATUS_PARTIAL
+
+        PostpaidEntry.objects.filter(pk=self.pk).update(
+            paid_amount=new_paid,
+            payment_status=new_status,
+            payment_date=date.today(),
+        )
+        self.refresh_from_db()
+        return self
 
     # ── Human-readable scope label ──────────────────
     @property

@@ -21,6 +21,7 @@ from .services.postpaid_service import (
     get_postpaid_summary,
     get_postpaid_filter_options,
     mark_as_paid,
+    record_payment,
 )
 
 
@@ -111,22 +112,46 @@ def postpaid_list_view(request):
 @require_POST
 def mark_as_paid_view(request, entry_id):
     """
-    Mark a postpaid entry as paid.
+    Record a payment against a postpaid entry.
+
+    Supports two modes:
+    - Full pay: no 'amount' in POST → marks entry as fully paid.
+    - Partial pay: 'amount' in POST → records that specific amount.
 
     POST-only with CSRF protection.  Redirects back to the
     postpaid list with a success or error message.
     """
+    from django.core.exceptions import ValidationError
     from sales.models import PostpaidEntry
 
     try:
-        entry = mark_as_paid(entry_id)
-        messages.success(
-            request,
-            f"✅ Marked as paid — {entry.doctor.name} | "
-            f"{entry.medicine.name} (₹{entry.amount:,.2f})",
-        )
+        pay_amount_raw = request.POST.get("amount", "").strip()
+
+        if pay_amount_raw:
+            # Partial / specific amount payment
+            entry = record_payment(entry_id, pay_amount_raw)
+            messages.success(
+                request,
+                f"✅ Payment of ₹{entry.paid_amount:,.2f} recorded — "
+                f"{entry.doctor.name} | {entry.medicine.name} "
+                f"({entry.get_payment_status_display()})",
+            )
+        else:
+            # Full payment
+            entry = mark_as_paid(entry_id)
+            messages.success(
+                request,
+                f"✅ Marked as fully paid — {entry.doctor.name} | "
+                f"{entry.medicine.name} (₹{entry.amount:,.2f})",
+            )
     except PostpaidEntry.DoesNotExist:
         messages.error(request, "Entry not found.")
+    except ValidationError as e:
+        # Surface validation errors (e.g. overpayment)
+        error_msg = "; ".join(
+            msg for msg_list in e.message_dict.values() for msg in msg_list
+        ) if hasattr(e, "message_dict") else str(e)
+        messages.error(request, f"Payment failed: {error_msg}")
 
     return redirect("sales:postpaid")
 

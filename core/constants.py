@@ -52,3 +52,16 @@ PAYOUT_TYPE_CHOICES = [
     (PAYOUT_TYPE_CAMPAIGN, "Campaign"),
 ]
 
+# ──────────────────────────────────────────────
+# Payment status
+# ──────────────────────────────────────────────
+PAYMENT_STATUS_UNPAID = "unpaid"
+PAYMENT_STATUS_PARTIAL = "partial"
+PAYMENT_STATUS_PAID = "paid"
+
+PAYMENT_STATUS_CHOICES = [
+    (PAYMENT_STATUS_UNPAID, "Unpaid"),
+    (PAYMENT_STATUS_PARTIAL, "Partially Paid"),
+    (PAYMENT_STATUS_PAID, "Fully Paid"),
+]
+

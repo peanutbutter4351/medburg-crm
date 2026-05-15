@@ -105,12 +105,14 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
         "roi_percentage",
         "get_total_sales",
         "get_amount",
-        "is_paid",
+        "get_paid_amount",
+        "get_balance",
+        "payment_status",
         "payment_date",
         "created_at",
     )
     list_filter = (
-        "is_paid",
+        "payment_status",
         "payout_type",
         "payment_date",
         "doctor__mode",
@@ -122,9 +124,9 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("doctor", "medicine")
     list_per_page = 30
-    list_editable = ("is_paid",)
-    readonly_fields = ("amount", "total_sales_value")
-    actions = ["recalculate_amounts"]
+    list_editable = ("payment_status",)
+    readonly_fields = ("amount", "total_sales_value", "get_balance_display")
+    actions = ["recalculate_amounts", "mark_fully_paid"]
 
     fieldsets = (
         (
@@ -165,7 +167,12 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
         (
             "Payment",
             {
-                "fields": ("is_paid", "payment_date"),
+                "fields": (
+                    "payment_status",
+                    "paid_amount",
+                    "get_balance_display",
+                    "payment_date",
+                ),
             },
         ),
         (
@@ -180,6 +187,19 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     @admin.display(description="Amount (₹)")
     def get_amount(self, obj):
         return f"₹{obj.amount:,.2f}"
+
+    @admin.display(description="Paid (₹)")
+    def get_paid_amount(self, obj):
+        return f"₹{obj.paid_amount:,.2f}"
+
+    @admin.display(description="Balance (₹)")
+    def get_balance(self, obj):
+        return f"₹{obj.balance_amount:,.2f}"
+
+    @admin.display(description="Balance")
+    def get_balance_display(self, obj):
+        """Read-only balance field for the detail form."""
+        return f"₹{obj.balance_amount:,.2f}"
 
     @admin.display(description="Sales Total (₹)")
     def get_total_sales(self, obj):
@@ -199,6 +219,26 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             f"Recalculated {count} entr{'y' if count == 1 else 'ies'}.",
+        )
+
+    @admin.action(description="Mark selected entries as fully paid")
+    def mark_fully_paid(self, request, queryset):
+        """Admin action to mark entries as fully paid."""
+        from datetime import date
+        from core.constants import PAYMENT_STATUS_PAID
+
+        unpaid = queryset.exclude(payment_status=PAYMENT_STATUS_PAID)
+        count = 0
+        for entry in unpaid:
+            PostpaidEntry.objects.filter(pk=entry.pk).update(
+                payment_status=PAYMENT_STATUS_PAID,
+                paid_amount=entry.amount,
+                payment_date=date.today(),
+            )
+            count += 1
+        self.message_user(
+            request,
+            f"Marked {count} entr{'y' if count == 1 else 'ies'} as fully paid.",
         )
 
 

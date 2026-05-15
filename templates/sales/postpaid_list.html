@@ -84,16 +84,16 @@
     <div class="kpi-card">
         <div class="kpi-info">
             <div class="kpi-label">Paid</div>
-            <div class="kpi-value text-positive">₹{{ summary.paid_amount|floatformat:"2" }}</div>
-            <div class="kpi-sub">{{ summary.paid_count }} entr{{ summary.paid_count|pluralize:"y,ies" }}</div>
+            <div class="kpi-value text-positive">₹{{ summary.total_paid|floatformat:"2" }}</div>
+            <div class="kpi-sub">{{ summary.paid_count }} paid, {{ summary.partial_count }} partial</div>
         </div>
         <div class="kpi-icon achieved"><i class="bi bi-check-circle"></i></div>
     </div>
     <div class="kpi-card">
         <div class="kpi-info">
-            <div class="kpi-label">Unpaid</div>
-            <div class="kpi-value text-negative">₹{{ summary.unpaid_amount|floatformat:"2" }}</div>
-            <div class="kpi-sub">{{ summary.unpaid_count }} entr{{ summary.unpaid_count|pluralize:"y,ies" }}</div>
+            <div class="kpi-label">Outstanding</div>
+            <div class="kpi-value text-negative">₹{{ summary.total_outstanding|floatformat:"2" }}</div>
+            <div class="kpi-sub">{{ summary.unpaid_count }} entr{{ summary.unpaid_count|pluralize:"y,ies" }} unpaid</div>
         </div>
         <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
     </div>
@@ -120,6 +120,8 @@
                         <th>Scope</th>
                         <th class="text-right">ROI %</th>
                         <th class="text-right">Amount (₹)</th>
+                        <th class="text-right">Paid (₹)</th>
+                        <th class="text-right">Balance (₹)</th>
                         <th class="text-center">Status</th>
                         <th>Payment Date</th>
                         <th>Remarks</th>
@@ -136,9 +138,13 @@
                         <td><span class="crm-badge postpaid">{{ entry.scope_display }}</span></td>
                         <td class="text-right value-cell">{{ entry.roi_percentage|floatformat:"2" }}%</td>
                         <td class="text-right value-cell">₹{{ entry.amount|floatformat:"2" }}</td>
+                        <td class="text-right value-cell">₹{{ entry.paid_amount|floatformat:"2" }}</td>
+                        <td class="text-right value-cell">₹{{ entry.balance_amount|floatformat:"2" }}</td>
                         <td class="text-center">
                             {% if entry.is_paid %}
                             <span class="crm-badge completed">Paid</span>
+                            {% elif entry.is_partial %}
+                            <span class="crm-badge in-progress">Partial</span>
                             {% else %}
                             <span class="crm-badge pending">Unpaid</span>
                             {% endif %}
@@ -160,14 +166,46 @@
                         <td>{{ entry.created_at|date:"d M Y" }}</td>
                         <td class="text-center">
                             {% if not entry.is_paid %}
+                            <div class="d-flex gap-1 justify-content-center align-items-center">
+                                <!-- Full pay button -->
+                                <form method="post"
+                                      action="{% url 'sales:mark_paid' entry.id %}"
+                                      style="display:inline"
+                                      onsubmit="return confirm('Mark this entry as fully paid?')">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn-crm-mark-paid" title="Mark as Fully Paid">
+                                        <i class="bi bi-check2-circle"></i> Full
+                                    </button>
+                                </form>
+                                <!-- Partial pay button (opens inline input) -->
+                                <button type="button"
+                                        class="btn-crm-mark-paid btn-crm-partial"
+                                        title="Record Partial Payment"
+                                        onclick="togglePartialForm(this, {{ entry.id }})">
+                                    <i class="bi bi-pie-chart"></i> Partial
+                                </button>
+                            </div>
+                            <!-- Inline partial payment form (hidden by default) -->
                             <form method="post"
                                   action="{% url 'sales:mark_paid' entry.id %}"
-                                  style="display:inline"
-                                  onsubmit="return confirm('Mark this entry as paid?')">
+                                  id="partial-form-{{ entry.id }}"
+                                  class="partial-pay-form"
+                                  style="display:none; margin-top:6px;">
                                 {% csrf_token %}
-                                <button type="submit" class="btn-crm-mark-paid" title="Mark as Paid">
-                                    <i class="bi bi-check2-circle"></i> Pay
-                                </button>
+                                <div class="d-flex gap-1 align-items-center justify-content-center">
+                                    <input type="number"
+                                           name="amount"
+                                           step="0.01"
+                                           min="0.01"
+                                           max="{{ entry.balance_amount }}"
+                                           placeholder="₹ Amount"
+                                           class="form-control form-control-sm"
+                                           style="width:110px; font-size:0.8rem;"
+                                           required>
+                                    <button type="submit" class="btn-crm-mark-paid" title="Submit Payment">
+                                        <i class="bi bi-send"></i>
+                                    </button>
+                                </div>
                             </form>
                             {% else %}
                             <span class="text-positive"><i class="bi bi-check-circle-fill"></i></span>
@@ -186,5 +224,17 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+function togglePartialForm(btn, entryId) {
+    const form = document.getElementById('partial-form-' + entryId);
+    if (form.style.display === 'none') {
+        form.style.display = 'block';
+        form.querySelector('input[name="amount"]').focus();
+    } else {
+        form.style.display = 'none';
+    }
+}
+</script>
 
 {% endblock %}
