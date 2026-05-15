@@ -17,6 +17,7 @@ services:
 
     env_file:
       - .env
+      - .env.prod
 
     depends_on:
       - db
