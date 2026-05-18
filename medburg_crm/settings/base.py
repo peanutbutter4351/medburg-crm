@@ -1,35 +1,26 @@
 """
-Django settings for medburg_crm project.
+Medburg CRM — Base Settings
+
+Contains every setting shared across ALL environments.
+Environment-specific files (development.py, production.py) import from here
+with `from .base import *` and then override only what differs.
+
+This file should NEVER contain:
+    - DEBUG value
+    - Database configuration
+    - SECRET_KEY value
+    - Security header toggles
+    - LOGGING configuration (handled per-environment)
 """
 
 import os
-import sys
 from pathlib import Path
-import dj_database_url
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ──────────────────────────────────────────────
-# Security
+# Paths
 # ──────────────────────────────────────────────
-DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
-
-_secret_key_fallback = (
-    "django-insecure-change-me-in-production-!@#$%^&*()"
-)
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
-if not SECRET_KEY:
-    if DEBUG:
-        SECRET_KEY = _secret_key_fallback
-    else:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            "DJANGO_SECRET_KEY environment variable is required in production."
-        )
-
-ALLOWED_HOSTS = os.environ.get(
-    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
-).split(",")
+# BASE_DIR points to the project root (one level above medburg_crm/)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # ──────────────────────────────────────────────
 # Applications
@@ -55,7 +46,7 @@ INSTALLED_APPS = [
 # ──────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # 👈 ADD THIS LINE
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -64,7 +55,11 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+# ──────────────────────────────────────────────
+# URL / WSGI
+# ──────────────────────────────────────────────
 ROOT_URLCONF = "medburg_crm.urls"
+WSGI_APPLICATION = "medburg_crm.wsgi.application"
 
 # ──────────────────────────────────────────────
 # Templates
@@ -84,26 +79,6 @@ TEMPLATES = [
         },
     },
 ]
-
-WSGI_APPLICATION = "medburg_crm.wsgi.application"
-
-# ──────────────────────────────────────────────
-# Database (Render PostgreSQL support)
-# ──────────────────────────────────────────────
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB"),
-        "USER": os.environ.get("POSTGRES_USER"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD"),
-        "HOST": os.environ.get("POSTGRES_HOST", "db"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-    }
-}
-
-# Only enforce SSL in production (not during local runserver)
-if not DEBUG and "runserver" not in sys.argv:
-    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
 
 # ──────────────────────────────────────────────
 # Auth
@@ -135,21 +110,24 @@ USE_TZ = True
 # ──────────────────────────────────────────────
 # Static files
 # ──────────────────────────────────────────────
+# WhiteNoise middleware (above) handles compression & caching for static files.
+# NOTE: WhiteNoise does NOT serve MEDIA files. Nginx handles media in production.
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # ──────────────────────────────────────────────
-# Security (Production Only)
+# Media files  (user-uploaded content)
 # ──────────────────────────────────────────────
-if not DEBUG and "runserver" not in sys.argv:
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = "DENY"
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+# MEDIA_URL  : URL prefix for all uploaded files.
+# MEDIA_ROOT : Absolute filesystem path where uploads are stored.
+#
+# Production: MEDIA_ROOT is overridden via DJANGO_MEDIA_ROOT env var
+#             and Nginx serves /media/ directly (bypassing Django/Gunicorn).
+# Development: files land in <project_root>/media/ and Django's
+#              dev server serves them via urls.py static() helper.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.environ.get("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media")))
 
 # ──────────────────────────────────────────────
 # Default primary key

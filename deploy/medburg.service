@@ -1,0 +1,91 @@
+[Unit]
+Description=Medburg CRM — Gunicorn application server
+Documentation=https://docs.gunicorn.org
+# Start after network is up AND PostgreSQL is ready
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+# ── Identity ──────────────────────────────────────────────────────────────────
+# Dedicated non-root, non-login service user
+# Created during VPS setup: useradd --system --no-create-home --shell /usr/sbin/nologin medburg
+User=medburg
+Group=www-data
+
+# ── Runtime directory ─────────────────────────────────────────────────────────
+# systemd creates /run/gunicorn/ at boot with correct ownership (tmpfs)
+# This means the socket directory is always present after a reboot
+# even though /run/ is cleared. No manual mkdir needed.
+RuntimeDirectory=gunicorn
+RuntimeDirectoryMode=0775
+
+# ── Working directory ─────────────────────────────────────────────────────────
+WorkingDirectory=/var/www/medburg_crm
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# Load all production env vars from .env.prod
+# File must be owned root:root with mode 600 OR medburg:medburg with mode 600
+EnvironmentFile=/var/www/medburg_crm/.env.prod
+
+# Ensure the correct settings module is active (also set in .env.prod as a guard)
+Environment="DJANGO_SETTINGS_MODULE=medburg_crm.settings.production"
+
+# ── Executable ────────────────────────────────────────────────────────────────
+# Point to gunicorn inside the project virtualenv
+ExecStart=/var/www/medburg_crm/venv/bin/gunicorn \
+    --config /var/www/medburg_crm/deploy/gunicorn.conf.py \
+    medburg_crm.wsgi:application
+
+# Graceful reload (SIGHUP): `systemctl reload medburg`
+# Workers drain in-flight requests before reloading code.
+# Use this for zero-downtime deploys.
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Stop signal — SIGTERM triggers graceful_timeout shutdown
+KillSignal=SIGTERM
+KillMode=mixed
+
+# ── Restart policy ────────────────────────────────────────────────────────────
+# Restart on any abnormal exit (crash, OOM, unhandled exception in master)
+Restart=on-failure
+RestartSec=5s
+
+# Prevent restart loops: if the service fails 5 times in 30s, stop trying
+StartLimitIntervalSec=30s
+StartLimitBurst=5
+
+# ── Security hardening ────────────────────────────────────────────────────────
+# Prevent the process from gaining new privileges via setuid/setgid binaries
+NoNewPrivileges=true
+
+# Create a private /tmp for this service (prevents /tmp-based attacks)
+PrivateTmp=true
+
+# Restrict write access — only listed paths are writable
+# /var/www/medburg_crm  → application (logs, uploads during migration)
+# /var/log/medburg      → Django rotating logs (production.py)
+# /run/gunicorn         → socket + PID (managed by RuntimeDirectory=)
+ReadWritePaths=/var/www/medburg_crm /var/log/medburg /run/gunicorn
+
+# Make the rest of the filesystem read-only to the process
+# Comment out if you need broader write access (e.g. /tmp for CSV processing)
+ProtectSystem=strict
+
+# Hide /home and /root from the service process
+ProtectHome=true
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+# stdout/stderr → systemd journal (captured by gunicorn.conf.py accesslog="-")
+# View with: journalctl -u medburg -f
+# Django writes its own rotating logs to /var/log/medburg/ (production.py)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=medburg-gunicorn
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# Open file descriptor limit — Gunicorn workers + Nginx connections + DB pool
+LimitNOFILE=65536
+
+[Install]
+# Start on boot as part of the standard multi-user target
+WantedBy=multi-user.target

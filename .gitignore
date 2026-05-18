@@ -18,13 +18,22 @@ env/
 # Static collection
 staticfiles/
 
+# Media uploads (dev: media/, prod: /var/www/medburg_crm/media/)
+media/
+
+# Log files (dev: any .log, prod: /var/log/medburg/)
+*.log
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment
+# Environment files — never commit credentials
 .env
 *.env
+.env.*
+!.env.example
 
-# Logs
-*.log
+# Old settings backup (replaced by settings/ package)
+settings_old_backup.py

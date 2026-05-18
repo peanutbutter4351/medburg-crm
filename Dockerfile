@@ -7,6 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Show logs instantly
 ENV PYTHONUNBUFFERED=1
 
+# Use production settings
+ENV DJANGO_SETTINGS_MODULE=medburg_crm.settings.production
+
 # Set working directory
 WORKDIR /app
 
