@@ -29,12 +29,29 @@ APP_DIR="/var/www/medburg_crm"
 VENV="${APP_DIR}/venv"
 PYTHON="${VENV}/bin/python"
 PIP="${VENV}/bin/pip"
-MANAGE="${PYTHON} ${APP_DIR}/manage.py"
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+# Explicitly set settings module — never rely on wsgi.py default during CLI ops
+export DJANGO_SETTINGS_MODULE="medburg_crm.settings.production"
+
+# Load env vars from .env.prod so manage.py commands can reach PostgreSQL
+# shellcheck source=/dev/null
+if [[ -f "${APP_DIR}/.env.prod" ]]; then
+    set -o allexport
+    source "${APP_DIR}/.env.prod"
+    set +o allexport
+else
+    echo "ERROR: ${APP_DIR}/.env.prod not found. Aborting."
+    exit 1
+fi
+
+MANAGE="${PYTHON} ${APP_DIR}/manage.py"
+PIDFILE="/run/gunicorn/medburg.pid"
+
+# ── Colors ──────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 step() { echo -e "\n${GREEN}▶ $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $*${NC}"; }
+error() { echo -e "${RED}✗ $*${NC}"; exit 1; }
 
 cd "$APP_DIR"
 
@@ -46,27 +63,33 @@ step "2/6  Installing Python dependencies..."
 "$PIP" install -r requirements.txt --quiet
 
 step "3/6  Running database migrations..."
-DJANGO_SETTINGS_MODULE=medburg_crm.settings.production \
-    "$MANAGE" migrate --no-input
+"$MANAGE" migrate --no-input
 
-step "4/6  Collecting static files..."
-DJANGO_SETTINGS_MODULE=medburg_crm.settings.production \
-    "$MANAGE" collectstatic --no-input --clear
+step "4/6  Collecting static files (atomic — no downtime window)..."
+# ⚠ Do NOT use --clear here. It deletes static files then regenerates them,
+# creating a window where users get 404s on CSS/JS on a live server.
+# The manifest storage already handles cache-busting via content hashes.
+"$MANAGE" collectstatic --no-input
 
 step "5/6  Running Django system checks..."
-DJANGO_SETTINGS_MODULE=medburg_crm.settings.production \
-    "$MANAGE" check --deploy 2>&1 | grep -v "^System check" || true
+"$MANAGE" check --deploy 2>&1 | grep -v "^System check" || true
 
-step "6/6  Reloading Gunicorn (zero-downtime)..."
-# systemctl reload sends SIGHUP to the Gunicorn master process.
-# The master forks new workers with the updated code, then gracefully
-# shuts down the old workers after they finish current requests.
-if systemctl is-active --quiet medburg; then
-    sudo systemctl reload medburg
-    echo "  Gunicorn reloaded successfully"
+step "6/6  Reloading Gunicorn (zero-downtime SIGHUP)..."
+# We send SIGHUP directly to the master PID rather than using 'sudo systemctl
+# reload' because the medburg service user cannot run sudo without explicit
+# sudoers configuration. The medburg user owns the PID file and can signal
+# its own process. systemd monitors the master and will restart it if needed.
+if [[ -f "$PIDFILE" ]]; then
+    MASTER_PID=$(cat "$PIDFILE")
+    if kill -0 "$MASTER_PID" 2>/dev/null; then
+        kill -HUP "$MASTER_PID"
+        echo "  Sent SIGHUP to Gunicorn master PID ${MASTER_PID} — workers draining"
+    else
+        warn "PID ${MASTER_PID} not alive. Is the service running? Try: sudo systemctl start medburg"
+    fi
 else
-    warn "Service 'medburg' is not running — starting it now..."
-    sudo systemctl start medburg
+    warn "PID file not found at $PIDFILE. Is the service running?"
+    warn "Start it with: sudo systemctl start medburg"
 fi
 
 echo ""

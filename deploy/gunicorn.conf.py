@@ -59,7 +59,7 @@ graceful_timeout = 30
 # Match Nginx's keepalive_timeout
 keepalive = 5
 
-# ── Process management ────────────────────────────────────────────────────────
+# ── Process management ────────────────────────────────────────────────
 # Preload app before forking workers — saves memory (copy-on-write)
 # Downside: code changes require full restart (not reload) — acceptable for CRM
 preload_app = True
@@ -67,12 +67,14 @@ preload_app = True
 # PID file — used by systemd and management scripts to track the master process
 pidfile = "/run/gunicorn/medburg.pid"
 
-# User/group to run workers as — must match systemd User= / Group=
-# Set to the dedicated app user created during VPS setup
-user = os.environ.get("GUNICORN_USER", "medburg")
-group = os.environ.get("GUNICORN_GROUP", "www-data")
+# NOTE: Do NOT set user= / group= here.
+# systemd's User=medburg / Group=www-data in medburg.service already runs
+# the process with the correct identity. If user= were set here AND systemd
+# ran us as 'medburg' (non-root), gunicorn would attempt a setuid() call
+# and fail with PermissionError because only root can change uid.
+# Identity is owned entirely by the systemd unit file.
 
-# ── File permissions ──────────────────────────────────────────────────────────
+# ── File permissions ────────────────────────────────────────────────
 # Socket permissions — 0o660 allows Nginx (www-data group) to connect
 # The medburg user owns the socket; Nginx connects via group membership
 umask = 0o007  # socket gets 0o660 (rw-rw----)

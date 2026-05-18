@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Medburg CRM — sudoers drop-in for the medburg service user
+# File: deploy/medburg-sudoers
+#
+# Install on VPS (as root):
+#   sudo cp deploy/medburg-sudoers /etc/sudoers.d/medburg
+#   sudo chmod 440 /etc/sudoers.d/medburg
+#   sudo visudo -c -f /etc/sudoers.d/medburg   # validates syntax before use
+#
+# Purpose:
+#   Allows the 'medburg' service account to start/stop/reload its own systemd
+#   service without a full sudo password or blanket sudo access.
+#
+#   This is the minimal privilege set needed for deploy.sh to work without
+#   a human operator present (e.g. automated CI deploys via SSH).
+#
+# Scope — only these exact commands are permitted:
+#   - systemctl start/stop/restart/reload/status medburg
+#   No shell, no pip, no apt, no file writes, no other services.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cmnd_Alias groups the allowed systemctl operations for medburg
+Cmnd_Alias MEDBURG_SERVICE = \
+    /usr/bin/systemctl start medburg, \
+    /usr/bin/systemctl stop medburg, \
+    /usr/bin/systemctl restart medburg, \
+    /usr/bin/systemctl reload medburg, \
+    /usr/bin/systemctl status medburg
+
+# Allow medburg to run these commands as root, without password
+medburg ALL=(root) NOPASSWD: MEDBURG_SERVICE
