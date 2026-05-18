@@ -112,20 +112,49 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
-# SSL redirect — disable during initial setup before Nginx TLS is live
+# ── SSL redirect ───────────────────────────────────────────────────
+# Phase 2A-4: .env.prod explicitly sets False until Certbot SSL is live.
+# Phase 2A-6: flip DJANGO_SECURE_SSL_REDIRECT=True in .env.prod after
+#             certbot --nginx succeeds and HTTPS is confirmed working.
 SECURE_SSL_REDIRECT = os.environ.get(
-    "DJANGO_SECURE_SSL_REDIRECT", "True"
+    "DJANGO_SECURE_SSL_REDIRECT", "False"
 ).lower() in ("true", "1", "yes")
 
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+# ── Cookie security ─────────────────────────────────────────────────
+# WHY env-var gated (not hardcoded True):
+#   SESSION_COOKIE_SECURE=True means Django ONLY sends the session cookie
+#   over HTTPS. On HTTP-only pre-SSL deployment, every login attempt fails
+#   silently — the browser discards the Set-Cookie response.
+#   SAME applies to CSRF_COOKIE_SECURE — all POST forms break without it.
+#
+# Phase 2A-5 (current): both remain False — set in .env.prod.
+# Phase 2A-6 (after SSL): flip DJANGO_SESSION_COOKIE_SECURE=True in .env.prod.
+_bool_env = lambda k, default: os.environ.get(k, default).lower() in ("true", "1", "yes")
 
-# HSTS — enable only after SSL is confirmed end-to-end
-SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "31536000"))
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+SESSION_COOKIE_SECURE  = _bool_env("DJANGO_SESSION_COOKIE_SECURE",  "False")
+CSRF_COOKIE_SECURE     = _bool_env("DJANGO_CSRF_COOKIE_SECURE",     "False")
 
-# Trust Nginx's X-Forwarded-Proto header so Django knows requests arrive over HTTPS
+# ── HSTS ─────────────────────────────────────────────────────────────────
+# WHY default 0 (not 31536000):
+#   HSTS with max-age=31536000 tells browsers to ONLY use HTTPS for 1 year.
+#   If this header is sent before SSL is working AND DNS is cut over, browsers
+#   cache it. If Certbot later fails or SSL cert expires, the domain becomes
+#   completely inaccessible for up to a year — no way to serve HTTP fallback.
+#
+# Safe HSTS rollout (Phase 2A-6+):
+#   Step 1: DJANGO_HSTS_SECONDS=300  (5 min — test that HTTPS works)
+#   Step 2: DJANGO_HSTS_SECONDS=86400  (1 day — after a week of stability)
+#   Step 3: DJANGO_HSTS_SECONDS=31536000 + preload  (only when fully confident)
+SECURE_HSTS_SECONDS            = int(os.environ.get("DJANGO_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _bool_env("DJANGO_HSTS_INCLUDE_SUBDOMAINS", "False")
+SECURE_HSTS_PRELOAD            = _bool_env("DJANGO_HSTS_PRELOAD",            "False")
+
+# ── Reverse proxy trust ──────────────────────────────────────────────
+# Trust Nginx's X-Forwarded-Proto header.
+# WHY: When Nginx terminates SSL and proxies to Gunicorn over HTTP, Django sees
+# an HTTP request. Without this setting, request.is_secure() returns False and
+# SECURE_SSL_REDIRECT loops forever. The header MUST come from Nginx (trusted
+# proxy) not from arbitrary clients — Nginx strips client-supplied versions.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # ──────────────────────────────────────────────────────────────────
