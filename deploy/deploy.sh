@@ -56,7 +56,9 @@ error() { echo -e "${RED}✗ $*${NC}"; exit 1; }
 cd "$APP_DIR"
 
 step "1/6  Pulling latest code from git..."
-git pull origin main
+# --ff-only: abort if the remote history diverged (prevents merge commits on
+# production). If this fails, investigate and rebase locally before deploying.
+git pull --ff-only origin main
 
 step "2/6  Installing Python dependencies..."
 "$PIP" install --upgrade pip --quiet
@@ -74,29 +76,42 @@ step "4/6  Collecting static files (atomic — no downtime window)..."
 step "5/6  Running Django system checks..."
 "$MANAGE" check --deploy 2>&1 | grep -v "^System check" || true
 
-step "6/6  Reloading Gunicorn (zero-downtime SIGHUP)..."
-# We send SIGHUP directly to the master PID rather than using 'sudo systemctl
-# reload' because the medburg service user cannot run sudo without explicit
-# sudoers configuration. The medburg user owns the PID file and can signal
-# its own process. systemd monitors the master and will restart it if needed.
-if [[ -f "$PIDFILE" ]]; then
-    MASTER_PID=$(cat "$PIDFILE")
-    if kill -0 "$MASTER_PID" 2>/dev/null; then
-        kill -HUP "$MASTER_PID"
-        echo "  Sent SIGHUP to Gunicorn master PID ${MASTER_PID} — workers draining"
+step "6/6  Reloading Gunicorn service..."
+# WHY systemctl restart instead of kill -HUP?
+#   With preload_app=True in gunicorn.conf.py, a plain SIGHUP does NOT
+#   re-import changed Python code. It only re-forks workers from the same
+#   already-loaded master process. New code would NOT be active.
+#
+#   systemctl restart sends SIGTERM (graceful), waits TimeoutStopSec=30s
+#   for in-flight requests to drain, then starts a fresh master with new code.
+#   For a CRM with low concurrent users, the ~1-2s gap is acceptable.
+#
+#   For TRUE zero-downtime with a binary upgrade, use the SIGUSR2 sequence
+#   documented in deploy/medburg.service ExecReload comment.
+if sudo systemctl is-active --quiet medburg 2>/dev/null; then
+    sudo systemctl restart medburg
+    sleep 3
+    if sudo systemctl is-active --quiet medburg; then
+        echo "  ✓ Gunicorn restarted successfully"
     else
-        warn "PID ${MASTER_PID} not alive. Is the service running? Try: sudo systemctl start medburg"
+        error "Gunicorn failed to restart. Check: sudo journalctl -u medburg -n 50"
     fi
 else
-    warn "PID file not found at $PIDFILE. Is the service running?"
-    warn "Start it with: sudo systemctl start medburg"
+    warn "Service 'medburg' is not running — starting it now..."
+    sudo systemctl start medburg
+    sleep 3
+    sudo systemctl is-active --quiet medburg || \
+        error "Failed to start medburg. Check: sudo journalctl -u medburg -n 50"
 fi
 
 echo ""
 echo -e "${GREEN}✓ Deployment complete!${NC}"
 echo ""
-echo "  Useful commands:"
-echo "    Status:   sudo systemctl status medburg"
-echo "    Logs:     sudo journalctl -u medburg -f"
-echo "    App log:  tail -f /var/log/medburg/app.log"
-echo "    Err log:  tail -f /var/log/medburg/error.log"
+sudo systemctl status medburg --no-pager --lines=5
+echo ""
+echo "  Monitoring commands:"
+echo "    Live logs:   sudo journalctl -u medburg -f"
+echo "    App log:     sudo -u medburg tail -f /var/log/medburg/app.log"
+echo "    Error log:   sudo -u medburg tail -f /var/log/medburg/error.log"
+echo "    Workers:     ps aux | grep gunicorn | grep -v grep"
+echo "    Socket:      ls -la /run/gunicorn/"
