@@ -42,6 +42,25 @@ class Doctor(BaseModel):
         blank=True,
         help_text="City / area / region.",
     )
+    phone_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Contact phone number.",
+    )
+    email = models.EmailField(
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Contact email address.",
+    )
+    specialization = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        help_text="Doctor's medical specialization.",
+    )
     mode = models.CharField(
         max_length=10,
         choices=DOCTOR_MODE_CHOICES,
@@ -77,6 +96,27 @@ class Doctor(BaseModel):
         verbose_name = "Doctor"
         verbose_name_plural = "Doctors"
         ordering = ["name"]
+
+    def clean(self):
+        super().clean()
+        
+        # Trim whitespace for required/existing string fields
+        if self.name:
+            self.name = self.name.strip()
+        if self.hospital:
+            self.hospital = self.hospital.strip()
+        if self.location:
+            self.location = self.location.strip()
+
+        # Normalize optional fields: trim, lowercase email, empty string to None
+        if self.phone_number is not None:
+            self.phone_number = self.phone_number.strip() or None
+            
+        if self.email is not None:
+            self.email = self.email.strip().lower() or None
+            
+        if self.specialization is not None:
+            self.specialization = self.specialization.strip() or None
 
     def __str__(self):
         return self.name
