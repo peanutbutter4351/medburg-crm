@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+&rsaquo; Import Excel
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div>
+            <fieldset class="module aligned">
+                <h2>Select an Excel file to import</h2>
+                <div class="form-row">
+                    {{ form.excel_file.errors }}
+                    {{ form.excel_file.label_tag }}
+                    {{ form.excel_file }}
+                    <p class="help">{{ form.excel_file.help_text }}</p>
+                </div>
+            </fieldset>
+            <div class="submit-row">
+                <input type="submit" value="Upload & Import" class="default" name="_save">
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -9,6 +9,8 @@ from django.contrib import admin
 from django.db.models import Sum, F
 from django.utils.html import format_html
 
+from core.admin_mixins import ExcelImportAdminMixin
+from .importers.doctor_importer import DoctorImporter
 from .models import Doctor, Investment, DoctorMedicine
 
 
@@ -59,13 +61,15 @@ class DoctorMedicineInline(admin.TabularInline):
 # ──────────────────────────────────────────────
 
 @admin.register(Doctor)
-class DoctorAdmin(admin.ModelAdmin):
+class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     """
     Central admin view — acts as the primary dashboard.
 
     Shows doctor profile, inline investments & medicine mappings,
     plus computed ROI columns in the list view.
     """
+
+    importer_class = DoctorImporter
 
     list_display = (
         "name",
