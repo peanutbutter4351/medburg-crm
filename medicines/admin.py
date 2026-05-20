@@ -4,12 +4,16 @@ Admin configuration for the medicines app.
 
 from django.contrib import admin
 
+from core.admin_mixins import ExcelImportAdminMixin
+from .importers import MedicineImporter
 from .models import Medicine
 
 
 @admin.register(Medicine)
-class MedicineAdmin(admin.ModelAdmin):
+class MedicineAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     """Medicine catalogue management."""
+
+    importer_class = MedicineImporter
 
     list_display = (
         "name",
