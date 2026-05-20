@@ -33,7 +33,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # ── project apps ─────────────────────────
-    "core",
+    "core.apps.CoreConfig",
     "accounts.apps.AccountsConfig",
     "doctors.apps.DoctorsConfig",
     "medicines.apps.MedicinesConfig",
