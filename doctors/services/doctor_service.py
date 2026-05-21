@@ -27,7 +27,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
     ─────────────────
     total_investment  – Σ investments.amount
     total_roi_amount  – Σ (investments.amount × investments.roi_ratio)
-    achieved_roi      – Σ (sales_entries.quantity × sales_entries.medicine.ptr)
+    achieved_roi      – Σ (sales_entries.quantity × sales_entries.medicine.pts)
     balance_roi       – total_roi_amount − achieved_roi
     roi_status        – Completed / In Progress / Pending / No Investment / Postpaid
 
@@ -41,7 +41,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
         .filter(doctor_id=OuterRef("pk"))
         .values("doctor_id")
         .annotate(
-            total=Sum(F("quantity") * F("medicine__ptr")),
+            total=Sum(F("quantity") * F("medicine__pts")),
         )
         .values("total")[:1]
     )

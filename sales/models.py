@@ -4,7 +4,7 @@ Sales models — SalesEntry and PostpaidEntry.
 Business rules
 ──────────────
 • Reps enter **quantity** only — never raw value.
-• Value is computed:  quantity × Medicine.ptr
+• Value is computed:  quantity × Medicine.pts
 • Achieved ROI = Σ value across all SalesEntry rows for a doctor.
 • Balance ROI  = Investment.roi_amount − Achieved ROI
 
@@ -92,8 +92,8 @@ class SalesEntry(BaseModel):
     # ── computed property (not stored) ───────────────
     @property
     def value(self):
-        """Calculated value = quantity × PTR of the medicine."""
-        return self.quantity * self.medicine.ptr
+        """Calculated value = quantity × PTS of the medicine."""
+        return self.quantity * self.medicine.pts
 
     @property
     def total_value(self):
@@ -328,14 +328,14 @@ class PostpaidEntry(BaseModel):
         """
         Aggregate scoped SalesEntry.total_value and apply ROI%.
 
-        Uses the annotation  quantity × medicine__ptr  which mirrors
+        Uses the annotation  quantity × medicine__pts  which mirrors
         the SalesEntry.total_value property at the DB level.
 
         Sets both total_sales_value (snapshot) and amount.
         """
         self.total_sales_value = self._get_scoped_sales_qs().aggregate(
             total=Coalesce(
-                Sum(F("quantity") * F("medicine__ptr")),
+                Sum(F("quantity") * F("medicine__pts")),
                 Decimal("0"),
             ),
         )["total"]

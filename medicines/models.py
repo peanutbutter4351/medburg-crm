@@ -30,13 +30,13 @@ class Medicine(BaseModel):
         max_digits=10,
         decimal_places=2,
         verbose_name="PTR",
-        help_text="Price To Retailer — used for sales value calculation.",
+        help_text="Price To Retailer (reference).",
     )
     pts = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         verbose_name="PTS",
-        help_text="Price To Stockist (reference).",
+        help_text="Price To Stockist — used for sales value calculation.",
     )
     mrp = models.DecimalField(
         max_digits=10,

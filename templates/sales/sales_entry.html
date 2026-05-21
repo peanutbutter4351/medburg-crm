@@ -51,7 +51,7 @@
                             {{ form.medicine.errors.0 }}
                         </div>
                         {% endif %}
-                        <div id="medicinePTR" class="form-text fw-semibold" style="display:none; color: var(--primary);"></div>
+                        <div id="medicinePTS" class="form-text fw-semibold" style="display:none; color: var(--primary);"></div>
                     </div>
 
                     <!-- Quantity -->
@@ -145,7 +145,7 @@
     const quantityInput = document.getElementById('id_quantity');
     const roiPanel      = document.getElementById('roiPanel');
     const roiDetails    = document.getElementById('roiDetails');
-    const medicinePTR   = document.getElementById('medicinePTR');
+    const medicinePTS   = document.getElementById('medicinePTS');
     const liveValue     = document.getElementById('liveValue');
     const progressWrap  = document.getElementById('roiProgressWrap');
 
@@ -154,7 +154,7 @@
     doctorSelect.addEventListener('change', function () {
         const doctorId = this.value;
         medicineData = {};
-        medicinePTR.style.display = 'none';
+        medicinePTS.style.display = 'none';
         liveValue.style.display = 'none';
 
         medicineSelect.innerHTML = '<option value="">— Select Medicine —</option>';
@@ -219,11 +219,11 @@
 
     medicineSelect.addEventListener('change', function () {
         const med = medicineData[this.value];
-        if (med) {
-            medicinePTR.textContent = 'PTR: ₹' + parseFloat(med.ptr).toFixed(2);
-            medicinePTR.style.display = '';
+        if (med && med.pts) {
+            medicinePTS.textContent = 'PTS: ₹' + parseFloat(med.pts).toFixed(2);
+            medicinePTS.style.display = '';
         } else {
-            medicinePTR.style.display = 'none';
+            medicinePTS.style.display = 'none';
         }
         updateLiveValue();
     });
@@ -234,7 +234,7 @@
         const med = medicineData[medicineSelect.value];
         const qty = parseInt(quantityInput.value, 10);
         if (med && qty > 0) {
-            const val = qty * parseFloat(med.ptr);
+            const val = qty * parseFloat(med.pts);
             liveValue.textContent = 'Value: ₹' + formatNum(val);
             liveValue.style.display = '';
         } else {

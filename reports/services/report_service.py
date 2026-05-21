@@ -7,7 +7,7 @@ views remain thin and templates receive pre-computed data only.
 Performance
 ───────────
 • select_related  — avoids N+1 on doctor / medicine / rep FKs
-• DB-level annotation — value = quantity × medicine__ptr
+• DB-level annotation — value = quantity × medicine__pts
 • Aggregated summary uses the same pre-filtered queryset
 • No Python loops for data computation
 • Subquery-based aggregation for doctor-level ROI to avoid
@@ -83,7 +83,7 @@ def get_report_queryset(
 
     Annotation added
     ────────────────
-    line_value  – quantity × medicine.ptr  (computed at DB level)
+    line_value  – quantity × medicine.pts  (computed at DB level)
 
     All FK look-ups use select_related to avoid N+1.
     """
@@ -91,7 +91,7 @@ def get_report_queryset(
         SalesEntry.objects
         .select_related("doctor", "medicine", "rep")
         .annotate(
-            line_value=F("quantity") * F("medicine__ptr"),
+            line_value=F("quantity") * F("medicine__pts"),
         )
         .order_by("-entry_date", "-created_at")
     )
@@ -200,7 +200,7 @@ def get_doctor_roi_report(
         .values("doctor_id")
         .annotate(
             achieved=Coalesce(
-                Sum(F("quantity") * F("medicine__ptr")),
+                Sum(F("quantity") * F("medicine__pts")),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
@@ -235,7 +235,7 @@ def get_doctor_roi_report(
             "medicine_name": str(entry.medicine),
             "rep_name": entry.rep.get_full_name() or entry.rep.username,
             "quantity": entry.quantity,
-            "value": entry.quantity * entry.medicine.ptr,
+            "value": entry.quantity * entry.medicine.pts,
             "total_investment": investment,
             "entry_date": entry.entry_date,
             "balance_roi": balance,
@@ -260,7 +260,7 @@ def get_report_summary(queryset):
             Sum("quantity"), Value(0),
         ),
         total_value=Coalesce(
-            Sum(F("quantity") * F("medicine__ptr")),
+            Sum(F("quantity") * F("medicine__pts")),
             Value(Decimal("0")),
             output_field=DecimalField(),
         ),

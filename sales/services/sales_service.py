@@ -27,7 +27,7 @@ def get_medicines_for_doctor(doctor_id):
         {
             "id": m.medicine.id,
             "name": str(m.medicine),
-            "ptr": str(m.medicine.ptr),
+            "pts": str(m.medicine.pts),
         }
         for m in mappings
     ]
@@ -46,7 +46,7 @@ def get_doctor_roi_summary(doctor):
 
     achieved = (
         SalesEntry.objects.filter(doctor=doctor).aggregate(
-            total=Sum(F("quantity") * F("medicine__ptr"))
+            total=Sum(F("quantity") * F("medicine__pts"))
         )["total"]
         or 0
     )

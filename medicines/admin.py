@@ -41,8 +41,8 @@ class MedicineAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
             "Pricing",
             {
                 "fields": ("ptr", "pts", "mrp"),
-                "description": "PTR is used for sales value calculation. "
-                               "PTS and MRP are for reference only.",
+                "description": "PTS is used for sales value calculation. "
+                               "PTR and MRP are for reference only.",
             },
         ),
     )

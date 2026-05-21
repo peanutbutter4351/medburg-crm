@@ -13,7 +13,7 @@ class SalesEntryAdmin(admin.ModelAdmin):
     """
     Sales entry management.
 
-    Shows the computed value (quantity × PTR) as a read-only column.
+    Shows the computed value (quantity × PTS) as a read-only column.
     Reps cannot edit entries once submitted — controlled via
     has_change_permission for non-admin users.
     """
@@ -24,7 +24,7 @@ class SalesEntryAdmin(admin.ModelAdmin):
         "medicine",
         "rep",
         "quantity",
-        "get_ptr",
+        "get_pts",
         "get_value",
         "created_at",
     )
@@ -63,9 +63,9 @@ class SalesEntryAdmin(admin.ModelAdmin):
 
     # ── computed columns ─────────────────────────────
 
-    @admin.display(description="PTR (₹)")
-    def get_ptr(self, obj):
-        return f"₹{obj.medicine.ptr:,.2f}"
+    @admin.display(description="PTS (₹)")
+    def get_pts(self, obj):
+        return f"₹{obj.medicine.pts:,.2f}"
 
     @admin.display(description="Value (₹)")
     def get_value(self, obj):
