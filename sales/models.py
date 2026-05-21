@@ -174,6 +174,10 @@ class PostpaidEntry(BaseModel):
     )
 
     # ── Computed on first save ──────────────────────
+    is_legacy_calculation = models.BooleanField(
+        default=False,
+        help_text="Protects historical payouts from recalculation after PTR→PTS migration.",
+    )
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -365,6 +369,11 @@ class PostpaidEntry(BaseModel):
         payout based on current sales data.  This is the only path
         that recalculates after initial save.
         """
+        if getattr(self, "is_legacy_calculation", False):
+            raise ValidationError(
+                "Historical payouts created before the PTR→PTS migration cannot be recalculated."
+            )
+            
         self._compute_amount()
         super().save(update_fields=["amount", "total_sales_value", "updated_at"])
 
