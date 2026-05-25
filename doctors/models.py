@@ -13,8 +13,12 @@ Achieved ROI = Σ (SalesEntry.quantity × Medicine.ptr)  for that doctor
 Balance ROI  = ROI Amount − Achieved ROI
 """
 
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
+from django.db.models import F, Sum
+from django.db.models.functions import Coalesce
 
 from core.constants import (
     DOCTOR_MODE_CHOICES,
@@ -130,6 +134,13 @@ class Investment(BaseModel):
     ROI Amount is computed as:  amount × roi_ratio
     """
 
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_CHOICES = [
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_COMPLETED, "Completed"),
+    ]
+
     doctor = models.ForeignKey(
         Doctor,
         on_delete=models.CASCADE,
@@ -152,6 +163,13 @@ class Investment(BaseModel):
         blank=True,
         help_text="Optional remarks about this investment.",
     )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_IN_PROGRESS,
+        db_index=True,
+        help_text="Lifecycle status of the investment ROI.",
+    )
 
     class Meta(BaseModel.Meta):
         verbose_name = "Investment"
@@ -166,6 +184,37 @@ class Investment(BaseModel):
     def roi_amount(self):
         """ROI Amount = investment × roi_ratio."""
         return self.amount * self.roi_ratio
+
+    @property
+    def total_sales_value(self):
+        """SUM of linked sales entry values."""
+        agg = self.sales_entries.aggregate(
+            total=Coalesce(
+                Sum(F("quantity") * F("medicine__pts")),
+                Decimal("0")
+            )
+        )
+        return Decimal(str(agg["total"]))
+
+    @property
+    def balance(self):
+        """expected_roi - total_sales_value"""
+        return self.roi_amount - self.total_sales_value
+
+    def refresh_status(self):
+        """
+        Automatically set:
+        completed if balance <= 0
+        otherwise in_progress
+        """
+        if self.balance <= 0:
+            new_status = self.STATUS_COMPLETED
+        else:
+            new_status = self.STATUS_IN_PROGRESS
+            
+        if self.status != new_status:
+            self.status = new_status
+            self.save(update_fields=["status", "updated_at"])
 
 
 class DoctorMedicine(BaseModel):

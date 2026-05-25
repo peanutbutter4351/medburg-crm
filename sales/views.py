@@ -14,7 +14,7 @@ from doctors.models import Doctor
 from .forms import SalesEntryForm
 from .services.sales_service import (
     create_sales_entry,
-    get_doctor_roi_summary,
+    get_investments_data_for_doctor,
     get_medicines_for_doctor,
 )
 from .services.postpaid_service import (
@@ -40,6 +40,7 @@ def sales_entry_view(request):
             entry = create_sales_entry(
                 rep=request.user,
                 doctor=form.cleaned_data["doctor"],
+                investment=form.cleaned_data["investment"],
                 medicine=form.cleaned_data["medicine"],
                 quantity=form.cleaned_data["quantity"],
             )
@@ -63,11 +64,13 @@ def api_medicines_for_doctor(request, doctor_id):
     """
     doctor = get_object_or_404(Doctor, pk=doctor_id, is_active=True)
     medicines = get_medicines_for_doctor(doctor_id)
-    roi_summary = get_doctor_roi_summary(doctor)
+    investments = get_investments_data_for_doctor(doctor)
 
     return JsonResponse({
         "medicines": medicines,
-        "roi": roi_summary,
+        "investments": investments,
+        "mode": doctor.get_mode_display(),
+        "is_prepaid": doctor.mode == "prepaid",
     })
 
 

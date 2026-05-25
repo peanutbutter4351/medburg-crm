@@ -40,6 +40,19 @@
                         {% endif %}
                     </div>
 
+                    <!-- Investment -->
+                    <div class="mb-3" id="investmentDiv" style="display:none;">
+                        <label for="id_investment" class="form-label">
+                            <i class="bi bi-wallet2 me-1 text-crm-primary"></i>Investment
+                        </label>
+                        {{ form.investment }}
+                        {% if form.investment.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.investment.errors.0 }}
+                        </div>
+                        {% endif %}
+                    </div>
+
                     <!-- Medicine -->
                     <div class="mb-3">
                         <label for="id_medicine" class="form-label">
@@ -91,10 +104,22 @@
                 </div>
                 <hr class="my-2" style="border-color: var(--border-color);">
 
-                <div id="roiDetails">
+                <div id="roiDetails" style="display:none;">
                     <div class="mb-2 d-flex justify-content-between">
                         <span class="text-crm-muted">Investment</span>
                         <span class="fw-semibold" id="roiInvestment">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">ROI Target</span>
+                        <span class="fw-semibold" id="roiTarget">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Achieved</span>
+                        <span class="fw-semibold text-positive" id="roiAchieved">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Status</span>
+                        <span class="fw-semibold" id="roiStatus">—</span>
                     </div>
                     <div class="mb-2 d-flex justify-content-between">
                         <span class="text-crm-muted">ROI Target</span>
@@ -141,6 +166,8 @@
 <script>
 (function () {
     const doctorSelect  = document.getElementById('id_doctor');
+    const investmentSelect = document.getElementById('id_investment');
+    const investmentDiv = document.getElementById('investmentDiv');
     const medicineSelect = document.getElementById('id_medicine');
     const quantityInput = document.getElementById('id_quantity');
     const roiPanel      = document.getElementById('roiPanel');
@@ -150,15 +177,27 @@
     const progressWrap  = document.getElementById('roiProgressWrap');
 
     let medicineData = {};
+    let investmentsData = {};
+
+    // Initial state setup for page reload (if doctor is already selected)
+    if (doctorSelect.value) {
+        // Simple heuristic: if investment field has options other than empty, show it
+        if (investmentSelect.options.length > 1) {
+            investmentDiv.style.display = '';
+        }
+    }
 
     doctorSelect.addEventListener('change', function () {
         const doctorId = this.value;
         medicineData = {};
+        investmentsData = {};
         medicinePTS.style.display = 'none';
         liveValue.style.display = 'none';
 
         medicineSelect.innerHTML = '<option value="">— Select Medicine —</option>';
+        investmentSelect.innerHTML = '<option value="">— Select Investment —</option>';
         quantityInput.value = '';
+        investmentDiv.style.display = 'none';
 
         if (!doctorId) {
             roiPanel.style.display = 'none';
@@ -176,45 +215,62 @@
                     medicineData[med.id] = med;
                 });
 
-                const roi = data.roi;
-                document.getElementById('roiMode').textContent = roi.mode;
+                document.getElementById('roiMode').textContent = data.mode;
 
-                if (roi.is_prepaid) {
-                    roiDetails.style.display = '';
-                    document.getElementById('roiInvestment').textContent = '₹' + formatNum(roi.investment);
-                    document.getElementById('roiTarget').textContent     = '₹' + formatNum(roi.roi_amount);
-                    document.getElementById('roiAchieved').textContent   = '₹' + formatNum(roi.achieved);
-
-                    const bal = roi.balance;
-                    const balEl = document.getElementById('roiBalance');
-                    balEl.textContent = '₹' + formatNum(bal);
-                    balEl.className = bal <= 0
-                        ? 'fw-bold text-positive'
-                        : 'fw-bold text-negative';
-
-                    if (roi.roi_amount > 0) {
-                        const pct = Math.min(100, (roi.achieved / roi.roi_amount) * 100);
-                        const bar = document.getElementById('roiProgressBar');
-                        bar.style.width = pct + '%';
-                        bar.className = 'crm-progress-bar ' + (pct >= 100 ? 'bg-crm-success' : 'bg-crm-primary');
-                        document.getElementById('roiProgressLabel').textContent =
-                            pct.toFixed(1) + '% achieved';
-                        progressWrap.style.display = '';
-                    } else {
-                        progressWrap.style.display = 'none';
-                    }
-                } else {
-                    roiDetails.style.display = '';
-                    document.getElementById('roiInvestment').textContent = 'N/A';
-                    document.getElementById('roiTarget').textContent     = 'N/A';
-                    document.getElementById('roiAchieved').textContent   = '₹' + formatNum(roi.achieved);
-                    document.getElementById('roiBalance').textContent    = 'N/A';
+                if (data.is_prepaid) {
+                    investmentDiv.style.display = '';
+                    
+                    data.investments.forEach(inv => {
+                        const opt = document.createElement('option');
+                        opt.value = inv.id;
+                        opt.textContent = inv.text;
+                        investmentSelect.appendChild(opt);
+                        investmentsData[inv.id] = inv;
+                    });
+                    
+                    roiDetails.style.display = 'none';
                     progressWrap.style.display = 'none';
+                    roiPanel.style.display = '';
+                } else {
+                    roiDetails.style.display = 'none';
+                    progressWrap.style.display = 'none';
+                    roiPanel.style.display = 'none';
                 }
-
-                roiPanel.style.display = '';
             })
-            .catch(err => console.error('Failed to load medicines:', err));
+            .catch(err => console.error('Failed to load doctor data:', err));
+    });
+
+    investmentSelect.addEventListener('change', function () {
+        const inv = investmentsData[this.value];
+        if (inv) {
+            roiDetails.style.display = '';
+            document.getElementById('roiInvestment').textContent = '₹' + formatNum(inv.amount);
+            document.getElementById('roiTarget').textContent     = '₹' + formatNum(inv.roi_amount);
+            document.getElementById('roiAchieved').textContent   = '₹' + formatNum(inv.achieved);
+            document.getElementById('roiStatus').textContent     = inv.status;
+
+            const bal = inv.balance;
+            const balEl = document.getElementById('roiBalance');
+            balEl.textContent = '₹' + formatNum(bal);
+            balEl.className = bal <= 0
+                ? 'fw-bold text-positive'
+                : 'fw-bold text-negative';
+
+            if (inv.roi_amount > 0) {
+                const pct = Math.min(100, (inv.achieved / inv.roi_amount) * 100);
+                const bar = document.getElementById('roiProgressBar');
+                bar.style.width = pct + '%';
+                bar.className = 'crm-progress-bar ' + (pct >= 100 ? 'bg-crm-success' : 'bg-crm-primary');
+                document.getElementById('roiProgressLabel').textContent =
+                    pct.toFixed(1) + '% achieved';
+                progressWrap.style.display = '';
+            } else {
+                progressWrap.style.display = 'none';
+            }
+        } else {
+            roiDetails.style.display = 'none';
+            progressWrap.style.display = 'none';
+        }
     });
 
     medicineSelect.addEventListener('change', function () {

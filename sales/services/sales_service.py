@@ -33,41 +33,35 @@ def get_medicines_for_doctor(doctor_id):
     ]
 
 
-def get_doctor_roi_summary(doctor):
+def get_investments_data_for_doctor(doctor):
     """
-    Return a dict with ROI summary for a doctor.
-    Used to show live ROI info on the sales entry page.
+    Return list of investment dicts for a given doctor.
+    Used by the AJAX endpoint to populate the investment dropdown and ROI summary panel.
+    Only returns in_progress investments.
     """
     from doctors.models import Investment
-
-    investments = doctor.investments.all()
-    total_investment = sum(inv.amount for inv in investments)
-    total_roi_amount = sum(inv.roi_amount for inv in investments)
-
-    achieved = (
-        SalesEntry.objects.filter(doctor=doctor).aggregate(
-            total=Sum(F("quantity") * F("medicine__pts"))
-        )["total"]
-        or 0
-    )
-
-    balance = total_roi_amount - achieved
-
-    return {
-        "mode": doctor.get_mode_display(),
-        "investment": float(total_investment),
-        "roi_amount": float(total_roi_amount),
-        "achieved": float(achieved),
-        "balance": float(balance),
-        "is_prepaid": doctor.mode == "prepaid",
-    }
+    
+    investments = doctor.investments.filter(status=Investment.STATUS_IN_PROGRESS).order_by("-start_date")
+    data = []
+    for inv in investments:
+        data.append({
+            "id": inv.id,
+            "text": str(inv),
+            "amount": float(inv.amount),
+            "roi_amount": float(inv.roi_amount),
+            "achieved": float(inv.total_sales_value),
+            "balance": float(inv.balance),
+            "status": inv.get_status_display()
+        })
+    return data
 
 
-def create_sales_entry(*, rep, doctor, medicine, quantity):
+def create_sales_entry(*, rep, doctor, investment, medicine, quantity):
     """Create and return a new SalesEntry."""
     return SalesEntry.objects.create(
         rep=rep,
         doctor=doctor,
+        investment=investment,
         medicine=medicine,
         quantity=quantity,
         entry_date=date.today(),

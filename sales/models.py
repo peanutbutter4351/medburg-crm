@@ -61,6 +61,14 @@ class SalesEntry(BaseModel):
         on_delete=models.CASCADE,
         related_name="sales_entries",
     )
+    investment = models.ForeignKey(
+        "doctors.Investment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sales_entries",
+        help_text="Investment this sales entry belongs to.",
+    )
     medicine = models.ForeignKey(
         "medicines.Medicine",
         on_delete=models.CASCADE,
@@ -99,6 +107,23 @@ class SalesEntry(BaseModel):
     def total_value(self):
         """Alias for value — used by aggregation queries."""
         return self.value
+
+    def clean(self):
+        super().clean()
+        if self._state.adding:
+            if self.doctor and self.doctor.mode == "prepaid" and not self.investment:
+                raise ValidationError({"investment": "Investment is required for prepaid doctors."})
+        
+        if self.investment and self._state.adding:
+            if self.investment.status == "completed":
+                raise ValidationError({"investment": "Completed investments cannot accept new sales entries."})
+            if self.investment.balance <= 0:
+                raise ValidationError({"investment": "Investments with zero or negative balance cannot accept new sales entries."})
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.investment:
+            self.investment.refresh_status()
 
 
 class PostpaidEntry(BaseModel):
