@@ -151,8 +151,8 @@
 <div class="data-card">
     <div class="data-card-header">
         <h5 class="data-card-title">
-            <i class="bi bi-table"></i> Doctor-wise ROI Report
-            <span class="count-badge">{{ roi_rows|length }}</span>
+            <i class="bi bi-table"></i> Investment ROI Report
+            <span class="count-badge">{{ paginator.count }}</span>
         </h5>
         {% if summary.total_entries > 0 %}
         <a href="{% url 'reports:export' %}?{{ request.GET.urlencode }}"
@@ -222,6 +222,56 @@
         </div>
         {% endif %}
     </div>
+
+    <!-- ── Pagination ──────────────────────────────────── -->
+    {% if paginator.num_pages > 1 %}
+    <div class="data-card-footer d-flex align-items-center justify-content-between flex-wrap gap-2" style="padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-color);">
+        <div class="text-crm-muted" style="font-size: 0.875rem;">
+            Showing rows {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ paginator.count }}
+        </div>
+        <nav aria-label="Report pagination">
+            <ul class="pagination pagination-sm mb-0">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page=1" aria-label="First">
+                        <i class="bi bi-chevron-double-left"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ page_obj.previous_page_number }}" aria-label="Previous">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for num in paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ num }}</span>
+                    </li>
+                    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{{ filter_qs }}&page={{ num }}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ page_obj.next_page_number }}" aria-label="Next">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ paginator.num_pages }}" aria-label="Last">
+                        <i class="bi bi-chevron-double-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
 </div>
 
 {% endblock %}

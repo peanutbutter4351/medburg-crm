@@ -3,9 +3,15 @@ Admin configuration for the doctors app.
 
 Doctor is the central entity — Investment and DoctorMedicine are
 managed as inlines so the admin can see everything on one page.
+
+Phase R1-A additions
+────────────────────
+• Completed investments are readonly for non-superusers.
+• Delete protection blocks dangerous deletes on Doctor/Investment.
+• InvestmentAdmin shows balance, status, and remaining ROI.
 """
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db.models import Sum, F
 from django.utils.html import format_html
 
@@ -27,7 +33,13 @@ def _fmt_currency(value):
 # ──────────────────────────────────────────────
 
 class InvestmentInline(admin.TabularInline):
-    """Investments shown inline on the Doctor change page."""
+    """
+    Investments shown inline on the Doctor change page.
+
+    Protection rules (R1-A):
+    - Completed investments are fully readonly for non-superusers.
+    - Superusers can edit everything.
+    """
 
     model = Investment
     extra = 1
@@ -35,6 +47,7 @@ class InvestmentInline(admin.TabularInline):
         "amount",
         "roi_ratio",
         "start_date",
+        "status",
         "get_roi_amount",
         "notes",
     )
@@ -46,6 +59,40 @@ class InvestmentInline(admin.TabularInline):
         if obj.pk:
             return _fmt_currency(obj.roi_amount)
         return "—"
+
+    def get_readonly_fields(self, request, obj=None):
+        """
+        Make all investment fields readonly for non-superusers when the
+        investment is completed.  Superusers can always edit.
+        """
+        base = list(self.readonly_fields)
+        return base
+
+    def get_formset(self, request, obj=None, **kwargs):
+        """
+        We need per-instance readonly logic; we patch the formset so that
+        the fields of completed-investment rows are disabled for non-superusers.
+        This is the safest approach when the protected object is an inline row.
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+        if request.user.is_superuser:
+            return formset
+
+        # Patch: mark the formset class so the template/view knows to lock
+        # completed rows.  We achieve this by overriding full_clean at the
+        # form level inside the formset.
+        original_init = formset.__init__
+
+        def patched_init(self_fs, *args, **kwargs_fs):
+            original_init(self_fs, *args, **kwargs_fs)
+            for form in self_fs.forms:
+                instance = getattr(form, "instance", None)
+                if instance and instance.pk and instance.status == Investment.STATUS_COMPLETED:
+                    for field in form.fields.values():
+                        field.disabled = True
+
+        formset.__init__ = patched_init
+        return formset
 
 
 class DoctorMedicineInline(admin.TabularInline):
@@ -67,6 +114,9 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
 
     Shows doctor profile, inline investments & medicine mappings,
     plus computed ROI columns in the list view.
+
+    Delete protection (R1-A):
+    - Doctors linked to investments or sales entries cannot be deleted.
     """
 
     importer_class = DoctorImporter
@@ -190,36 +240,258 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
         )
 
     def get_queryset(self, request):
-        """Annotate total investment for sorting."""
+        """
+        Annotate total investment for ordering and prefetch related sets
+        to eliminate N+1 queries in the computed columns.
+        """
         qs = super().get_queryset(request)
-        return qs.annotate(total_investment=Sum("investments__amount"))
+        return (
+            qs
+            .prefetch_related("investments", "sales_entries")
+            .annotate(total_investment=Sum("investments__amount"))
+        )
+
+    # ── Delete protection (R1-A) ──────────────────────
+
+    def delete_model(self, request, obj):
+        """Block deletion if doctor has investments or sales entries."""
+        if obj.investments.exists():
+            messages.set_level(request, messages.ERROR)
+            self.message_user(
+                request,
+                f'Cannot delete "{obj.name}": doctor has linked investments. '
+                "Remove all investments first.",
+                level=messages.ERROR,
+            )
+            return
+        if obj.sales_entries.exists():
+            messages.set_level(request, messages.ERROR)
+            self.message_user(
+                request,
+                f'Cannot delete "{obj.name}": doctor has linked sales entries.',
+                level=messages.ERROR,
+            )
+            return
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        """Block bulk deletion if any doctor has investments or sales."""
+        protected = []
+        safe = []
+        for doctor in queryset:
+            if doctor.investments.exists() or doctor.sales_entries.exists():
+                protected.append(doctor.name)
+            else:
+                safe.append(doctor)
+
+        if protected:
+            self.message_user(
+                request,
+                f"Blocked deletion of {len(protected)} doctor(s) with linked data: "
+                + ", ".join(protected),
+                level=messages.ERROR,
+            )
+        if safe:
+            for doctor in safe:
+                doctor.delete()
+            self.message_user(
+                request,
+                f"Deleted {len(safe)} doctor(s) successfully.",
+            )
 
 
 # ──────────────────────────────────────────────
-# Investment standalone (optional secondary view)
+# Investment Admin (R1-A enhanced)
 # ──────────────────────────────────────────────
 
 @admin.register(Investment)
 class InvestmentAdmin(admin.ModelAdmin):
-    """Standalone list of all investments across doctors."""
+    """
+    Standalone list of all investments across doctors.
+
+    R1-A enhancements:
+    - Status filter and badge display.
+    - Computed balance and remaining ROI columns.
+    - Completed investments are readonly for non-superusers.
+    - Delete protection for investments linked to sales entries.
+    """
 
     list_display = (
         "doctor",
         "amount",
         "roi_ratio",
         "get_roi_amount",
+        "get_balance_display",
+        "get_remaining_roi",
         "start_date",
+        "get_status_badge",
         "created_at",
     )
-    list_filter = ("start_date", "doctor__mode")
+    list_filter = ("status", "start_date", "doctor__mode")
     search_fields = ("doctor__name",)
     autocomplete_fields = ("doctor",)
     list_per_page = 25
     date_hierarchy = "start_date"
 
+    fieldsets = (
+        (
+            "Investment Details",
+            {
+                "fields": ("doctor", "amount", "roi_ratio", "start_date", "status"),
+            },
+        ),
+        (
+            "Computed (read-only)",
+            {
+                "fields": ("get_roi_amount_field", "get_balance_field"),
+                "description": "Automatically calculated. Cannot be edited.",
+            },
+        ),
+        (
+            "Notes",
+            {
+                "fields": ("notes",),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+    readonly_fields = ("get_roi_amount_field", "get_balance_field")
+
+    # ── Computed display methods ──────────────────────
+
     @admin.display(description="ROI Amount")
     def get_roi_amount(self, obj):
         return _fmt_currency(obj.roi_amount)
+
+    @admin.display(description="ROI Amount (₹)")
+    def get_roi_amount_field(self, obj):
+        if obj.pk:
+            return _fmt_currency(obj.roi_amount)
+        return "—"
+
+    @admin.display(description="Balance (₹)")
+    def get_balance_field(self, obj):
+        if obj.pk:
+            val = obj.balance
+            color = "#28a745" if val <= 0 else "#dc3545"
+            return format_html(
+                '<span style="color:{}; font-weight:600;">{}</span>',
+                color,
+                _fmt_currency(val),
+            )
+        return "—"
+
+    @admin.display(description="Balance")
+    def get_balance_display(self, obj):
+        val = obj.balance
+        color = "#28a745" if val <= 0 else "#dc3545"
+        return format_html(
+            '<span style="color:{}; font-weight:600;">{}</span>',
+            color,
+            _fmt_currency(val),
+        )
+
+    @admin.display(description="Remaining ROI")
+    def get_remaining_roi(self, obj):
+        """Remaining = balance clamped for display (shows overshoot as negative)."""
+        val = obj.balance
+        if val <= 0:
+            return format_html(
+                '<span style="color:#28a745; font-weight:600;">✓ Achieved</span>'
+            )
+        return _fmt_currency(val)
+
+    @admin.display(description="Status")
+    def get_status_badge(self, obj):
+        if obj.status == Investment.STATUS_COMPLETED:
+            return format_html(
+                '<span style="background:#28a745; color:#fff; '
+                'padding:2px 8px; border-radius:4px; font-size:11px;">Completed</span>'
+            )
+        return format_html(
+            '<span style="background:#17a2b8; color:#fff; '
+            'padding:2px 8px; border-radius:4px; font-size:11px;">In Progress</span>'
+        )
+
+    # ── Completed investment protection (R1-A) ────────
+
+    _PROTECTED_FIELDS = ("amount", "roi_ratio", "start_date", "status", "doctor", "notes")
+
+    def get_readonly_fields(self, request, obj=None):
+        """
+        Non-superusers cannot edit any meaningful field on a completed investment.
+        Superusers retain full edit access for corrections.
+        """
+        base = list(self.readonly_fields)
+        if obj and obj.pk and obj.status == Investment.STATUS_COMPLETED:
+            if not request.user.is_superuser:
+                base = list(set(base) | set(self._PROTECTED_FIELDS))
+        return base
+
+    def has_change_permission(self, request, obj=None):
+        """
+        Non-superusers can VIEW completed investments but the form renders
+        readonly (enforced by get_readonly_fields above).
+        We still return True so the detail page is accessible.
+        """
+        return True
+
+    def get_queryset(self, request):
+        """select_related on doctor prevents N+1 in list-view columns."""
+        return super().get_queryset(request).select_related("doctor")
+
+    # ── Delete protection (R1-A) ──────────────────────
+
+    def delete_model(self, request, obj):
+        if obj.status == Investment.STATUS_COMPLETED:
+            if not request.user.is_superuser:
+                self.message_user(
+                    request,
+                    f'Cannot delete completed investment for "{obj.doctor.name}". '
+                    "Only superusers may delete completed investments.",
+                    level=messages.ERROR,
+                )
+                return
+        if obj.sales_entries.exists():
+            self.message_user(
+                request,
+                f'Cannot delete investment for "{obj.doctor.name}": '
+                f"{obj.sales_entries.count()} linked sales entr(ies) exist. "
+                "Remove all linked sales entries first.",
+                level=messages.ERROR,
+            )
+            return
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        """Block bulk-deletion for completed or sales-linked investments."""
+        protected = []
+        safe = []
+        for inv in queryset:
+            blocked = False
+            if inv.status == Investment.STATUS_COMPLETED and not request.user.is_superuser:
+                protected.append(f"{inv.doctor.name} (completed)")
+                blocked = True
+            elif inv.sales_entries.exists():
+                protected.append(f"{inv.doctor.name} (has sales)")
+                blocked = True
+            if not blocked:
+                safe.append(inv)
+
+        if protected:
+            self.message_user(
+                request,
+                f"Blocked deletion of {len(protected)} investment(s): "
+                + ", ".join(protected),
+                level=messages.ERROR,
+            )
+        if safe:
+            for inv in safe:
+                inv.delete()
+            self.message_user(
+                request,
+                f"Deleted {len(safe)} investment(s) successfully.",
+            )
 
 
 # ──────────────────────────────────────────────

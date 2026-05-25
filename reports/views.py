@@ -3,10 +3,22 @@ Report views — Sales report page + Excel export endpoint.
 
 All business logic delegated to reports.services.report_service.
 Views are thin: parse request params, call service, render / respond.
+
+Pagination strategy (R1-B)
+──────────────────────────
+Progressive balance calculation and sorting happen FIRST inside
+get_doctor_roi_report().  Only after the full sorted list is ready
+do we slice it with Django’s Paginator.  This guarantees that
+balances are always computed across the whole investment sequence,
+not just the current page.
+
+The export endpoint deliberately bypasses pagination and always
+exports the full filtered+sorted dataset.
 """
 
 from datetime import datetime
 
+from django.core.paginator import InvalidPage, Paginator
 from django.http import HttpResponse
 from django.shortcuts import render
 
@@ -72,20 +84,54 @@ def _parse_filters(request):
     }
 
 
+# ── Pagination constant ──────────────────────────────────────────
+PAGE_SIZE = 25
+
+
+def _filter_querystring(request, exclude=("page",)):
+    """
+    Build a URL-encoded querystring from the current GET params,
+    excluding the keys listed in `exclude`.
+    Used to preserve all active filters/sort across page links.
+    """
+    params = request.GET.copy()
+    for key in exclude:
+        params.pop(key, None)
+    return params.urlencode()
+
+
 @admin_required
 def report_view(request):
     """
     Sales report page with filters, data table, and summary cards.
+
+    Pagination is applied AFTER progressive balance calculation and sorting
+    so that running balances are always mathematically correct.
     """
     filters = _parse_filters(request)
     queryset = get_report_queryset(**filters)
     summary = get_report_summary(queryset)
     filter_options = get_report_filter_options()
-    roi_rows = get_doctor_roi_report(**filters)
+
+    # Full sorted list with correct running balances
+    all_rows = get_doctor_roi_report(**filters)
+
+    # Paginate the pre-computed list
+    paginator = Paginator(all_rows, PAGE_SIZE)
+    page_number_raw = request.GET.get("page", 1)
+    try:
+        page_obj = paginator.page(page_number_raw)
+    except InvalidPage:
+        page_obj = paginator.page(1)
+
+    # Query string without ?page= for building pagination links
+    filter_qs = _filter_querystring(request)
 
     context = {
-        "entries": queryset,
-        "roi_rows": roi_rows,
+        "roi_rows": page_obj.object_list,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "filter_qs": filter_qs,
         "summary": summary,
         "filter_options": filter_options,
         # Sticky filter values

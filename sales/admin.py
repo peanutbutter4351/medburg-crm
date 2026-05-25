@@ -1,11 +1,26 @@
 """
 Admin configuration for the sales app.
+
+Phase R1-A additions
+────────────────────
+• SalesEntry admin now shows linked investment and its status.
+• Computed value column (quantity × PTS) displayed readonly.
+• Delete protection blocks removal of sales entries (only superusers allowed).
+• Medicine admin gains delete protection for medicines with linked sales.
 """
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db.models import Sum, F
+from django.utils.html import format_html
 
 from .models import SalesEntry, PostpaidEntry
+
+
+def _fmt_currency(value):
+    try:
+        return "₹{:,.2f}".format(float(value))
+    except (TypeError, ValueError):
+        return "—"
 
 
 @admin.register(SalesEntry)
@@ -13,14 +28,18 @@ class SalesEntryAdmin(admin.ModelAdmin):
     """
     Sales entry management.
 
-    Shows the computed value (quantity × PTS) as a read-only column.
-    Reps cannot edit entries once submitted — controlled via
-    has_change_permission for non-admin users.
+    R1-A additions:
+    - investment column and status badge in list view.
+    - Computed value readonly field in detail form.
+    - Useful filters: investment status, doctor mode, rep, date.
+    - Delete restricted to superusers.
     """
 
     list_display = (
         "entry_date",
         "doctor",
+        "get_investment_label",
+        "get_investment_status",
         "medicine",
         "rep",
         "quantity",
@@ -30,6 +49,7 @@ class SalesEntryAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "entry_date",
+        "investment__status",
         "doctor__mode",
         "doctor__doctor_type",
         "rep",
@@ -40,7 +60,7 @@ class SalesEntryAdmin(admin.ModelAdmin):
         "rep__username",
         "rep__first_name",
     )
-    autocomplete_fields = ("rep", "doctor", "medicine")
+    autocomplete_fields = ("rep", "doctor", "medicine", "investment")
     list_per_page = 30
     date_hierarchy = "entry_date"
     ordering = ("-entry_date", "-created_at")
@@ -49,7 +69,14 @@ class SalesEntryAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ("rep", "doctor", "medicine", "quantity", "entry_date"),
+                "fields": ("rep", "doctor", "investment", "medicine", "quantity", "entry_date"),
+            },
+        ),
+        (
+            "Computed",
+            {
+                "fields": ("get_computed_value",),
+                "description": "Auto-calculated from quantity × PTS. Cannot be edited.",
             },
         ),
         (
@@ -60,8 +87,29 @@ class SalesEntryAdmin(admin.ModelAdmin):
             },
         ),
     )
+    readonly_fields = ("get_computed_value",)
 
-    # ── computed columns ─────────────────────────────
+    # ── Computed columns ─────────────────────────────
+
+    @admin.display(description="Investment")
+    def get_investment_label(self, obj):
+        if obj.investment_id:
+            return str(obj.investment)
+        return format_html('<span style="color:#6c757d;">—</span>')
+
+    @admin.display(description="Inv. Status")
+    def get_investment_status(self, obj):
+        if not obj.investment_id:
+            return "—"
+        if obj.investment.status == "completed":
+            return format_html(
+                '<span style="background:#28a745; color:#fff; '
+                'padding:2px 6px; border-radius:4px; font-size:11px;">Completed</span>'
+            )
+        return format_html(
+            '<span style="background:#17a2b8; color:#fff; '
+            'padding:2px 6px; border-radius:4px; font-size:11px;">In Progress</span>'
+        )
 
     @admin.display(description="PTS (₹)")
     def get_pts(self, obj):
@@ -71,7 +119,16 @@ class SalesEntryAdmin(admin.ModelAdmin):
     def get_value(self, obj):
         return f"₹{obj.value:,.2f}"
 
-    # ── permissions: reps cannot edit submitted entries ──
+    @admin.display(description="Computed Value (₹)")
+    def get_computed_value(self, obj):
+        if obj.pk:
+            return format_html(
+                '<strong style="font-size:1.05em;">{}</strong>',
+                f"₹{obj.value:,.2f}",
+            )
+        return "—"
+
+    # ── Permissions ───────────────────────────────────
 
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
@@ -81,11 +138,36 @@ class SalesEntryAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
-        if request.user.is_superuser:
-            return True
-        if hasattr(request.user, "is_admin_user") and request.user.is_admin_user:
-            return True
-        return False
+        """Only superusers may delete sales entries."""
+        return request.user.is_superuser
+
+    def delete_model(self, request, obj):
+        if not request.user.is_superuser:
+            self.message_user(
+                request,
+                "Only superusers may delete sales entries.",
+                level=messages.ERROR,
+            )
+            return
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        if not request.user.is_superuser:
+            self.message_user(
+                request,
+                "Only superusers may delete sales entries.",
+                level=messages.ERROR,
+            )
+            return
+        super().delete_queryset(request, queryset)
+
+    # ── select_related for N+1 prevention ────────────
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .select_related("doctor", "medicine", "rep", "investment")
+        )
 
 
 @admin.register(PostpaidEntry)
@@ -262,5 +344,3 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
             request,
             f"Marked {count} entr{'y' if count == 1 else 'ies'} as fully paid.",
         )
-
-
