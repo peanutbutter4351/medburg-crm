@@ -71,6 +71,21 @@
                 </select>
             </div>
 
+            <!-- Sort -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-sort">Sort By</label>
+                <select class="form-select" id="filter-sort" name="sort">
+                    <option value="newest_first" {% if current_sort == 'newest_first' %}selected{% endif %}>Date (Newest First)</option>
+                    <option value="oldest_first" {% if current_sort == 'oldest_first' %}selected{% endif %}>Date (Oldest First)</option>
+                    <option value="doctor_az" {% if current_sort == 'doctor_az' %}selected{% endif %}>Doctor (A-Z)</option>
+                    <option value="doctor_za" {% if current_sort == 'doctor_za' %}selected{% endif %}>Doctor (Z-A)</option>
+                    <option value="highest_balance" {% if current_sort == 'highest_balance' %}selected{% endif %}>Balance (Highest)</option>
+                    <option value="lowest_balance" {% if current_sort == 'lowest_balance' %}selected{% endif %}>Balance (Lowest)</option>
+                    <option value="completed_first" {% if current_sort == 'completed_first' %}selected{% endif %}>Status (Completed First)</option>
+                    <option value="inprogress_first" {% if current_sort == 'inprogress_first' %}selected{% endif %}>Status (In Progress First)</option>
+                </select>
+            </div>
+
             <!-- Buttons -->
             <div class="col-12 col-sm-6 col-md-2 d-flex gap-2">
                 <button type="submit" class="btn-crm-primary flex-fill">
@@ -157,15 +172,17 @@
                         <th class="text-center">Sl No</th>
                         <th>Doctor</th>
                         <th>Area</th>
-                        <th>Type</th>
-                        <th>Medicine</th>
                         <th>Sales Rep</th>
-                        <th class="text-center">Qty</th>
-                        <th class="text-right">Value (₹)</th>
                         <th class="text-right">Investment (₹)</th>
+                        <th>Invested Date</th>
+                        <th class="text-right">Expected ROI (₹)</th>
+                        <th>Medicine</th>
+                        <th class="text-center">Qty</th>
                         <th>Date</th>
+                        <th class="text-right">Value (₹)</th>
                         <th class="text-right">Balance (₹)</th>
                         <th class="text-center">Status</th>
+                        <th>Note</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -174,13 +191,14 @@
                         <td class="text-center text-crm-muted">{{ row.sl_no }}</td>
                         <td><strong>{{ row.doctor_name }}</strong></td>
                         <td>{{ row.location }}</td>
-                        <td>{{ row.doctor_type }}</td>
-                        <td>{{ row.medicine_name }}</td>
                         <td>{{ row.rep_name }}</td>
+                        <td class="text-right value-cell">₹{{ row.investment_amount|floatformat:"2" }}</td>
+                        <td>{{ row.invested_date|date:"d M Y" }}</td>
+                        <td class="text-right value-cell">₹{{ row.expected_roi|floatformat:"2" }}</td>
+                        <td>{{ row.medicine_name }}</td>
                         <td class="text-center">{{ row.quantity }}</td>
-                        <td class="text-right value-cell">₹{{ row.value|floatformat:"2" }}</td>
-                        <td class="text-right value-cell">₹{{ row.total_investment|floatformat:"2" }}</td>
                         <td>{{ row.entry_date|date:"d M Y" }}</td>
+                        <td class="text-right value-cell">₹{{ row.value|floatformat:"2" }}</td>
                         <td class="text-right value-cell">₹{{ row.balance_roi|floatformat:"2" }}</td>
                         <td class="text-center">
                             {% if row.status == "Completed" %}
@@ -191,6 +209,7 @@
                             <span class="crm-badge pending">Pending</span>
                             {% endif %}
                         </td>
+                        <td>{{ row.note }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

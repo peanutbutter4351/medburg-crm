@@ -52,12 +52,23 @@ def _parse_filters(request):
         except (ValueError, TypeError):
             return None
 
+    sort_raw = request.GET.get("sort", "newest_first")
+    valid_sorts = {
+        "newest_first", "oldest_first",
+        "doctor_az", "doctor_za",
+        "highest_balance", "lowest_balance",
+        "completed_first", "inprogress_first"
+    }
+    if sort_raw not in valid_sorts:
+        sort_raw = "newest_first"
+
     return {
         "from_date": from_date,
         "to_date": to_date,
         "doctor_id": _safe_int(doctor_id_raw),
         "rep_id": _safe_int(rep_id_raw),
         "medicine_id": _safe_int(medicine_id_raw),
+        "sort": sort_raw,
     }
 
 
@@ -83,7 +94,8 @@ def report_view(request):
         "current_doctor": filters["doctor_id"],
         "current_rep": filters["rep_id"],
         "current_medicine": filters["medicine_id"],
-        "has_filters": any(filters.values()),
+        "current_sort": filters["sort"],
+        "has_filters": any(v for k, v in filters.items() if k != "sort"),
     }
 
     return render(request, "reports/report.html", context)

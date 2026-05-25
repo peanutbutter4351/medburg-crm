@@ -77,6 +77,7 @@ def get_report_queryset(
     doctor_id=None,
     rep_id=None,
     medicine_id=None,
+    sort=None,
 ):
     """
     Return an annotated SalesEntry queryset.
@@ -89,7 +90,8 @@ def get_report_queryset(
     """
     qs = (
         SalesEntry.objects
-        .select_related("doctor", "medicine", "rep")
+        .filter(investment__isnull=False)
+        .select_related("doctor", "medicine", "rep", "investment")
         .annotate(
             line_value=F("quantity") * F("medicine__pts"),
         )
@@ -120,28 +122,20 @@ def get_doctor_roi_report(
     doctor_id=None,
     rep_id=None,
     medicine_id=None,
+    sort=None,
 ):
     """
     Return a list of template-ready dicts with one row per
-    SalesEntry, enriched with doctor-level ROI data.
-
-    Columns per row
-    ───────────────
-    sl_no, doctor_name, location, doctor_type, medicine_name,
-    rep_name, quantity, value, total_investment, entry_date,
-    balance_roi, status
-
-    Aggregation approach
-    ────────────────────
-    Investment totals and ROI targets are computed via Subquery on
-    the Doctor model to avoid cross-join multiplication that would
-    happen with a naive Sum across joined SalesEntry + Investment.
+    SalesEntry, enriched with investment-level ROI data.
+    
+    Running balance calculates progressively per investment,
+    processing entries by entry_date ascending, then id ascending.
     """
-    # ── Step 1: build the base SalesEntry queryset ──────────
     qs = (
         SalesEntry.objects
-        .select_related("doctor", "medicine", "rep")
-        .order_by("doctor__name", "-entry_date")
+        .filter(investment__isnull=False)
+        .select_related("doctor", "medicine", "rep", "investment")
+        .order_by("investment_id", "entry_date", "id")
     )
 
     if from_date:
@@ -155,92 +149,62 @@ def get_doctor_roi_report(
     if medicine_id:
         qs = qs.filter(medicine_id=medicine_id)
 
-    # ── Step 2: pre-compute per-doctor investment & achieved ROI
-    #    using separate aggregation queries to avoid duplication ──
-    doctor_ids = list(qs.values_list("doctor_id", flat=True).distinct())
-
-    # Investment totals per doctor (from Investment table)
-    inv_rows = (
-        Investment.objects
-        .filter(doctor_id__in=doctor_ids)
-        .values("doctor_id")
-        .annotate(
-            total_inv=Coalesce(
-                Sum("amount"),
-                Value(Decimal("0")),
-                output_field=DecimalField(),
-            ),
-            total_roi_target=Coalesce(
-                Sum(F("amount") * F("roi_ratio")),
-                Value(Decimal("0")),
-                output_field=DecimalField(),
-            ),
-        )
-        .values_list("doctor_id", "total_inv", "total_roi_target")
-        .order_by()
-    )
-    inv_map = {
-        did: {"investment": inv, "roi_target": roi}
-        for did, inv, roi in inv_rows
-    }
-
-    # Achieved ROI per doctor (from SalesEntry, same date filters)
-    achieved_qs = (
-        SalesEntry.objects
-        .filter(doctor_id__in=doctor_ids)
-    )
-    if from_date:
-        achieved_qs = achieved_qs.filter(entry_date__gte=from_date)
-    if to_date:
-        achieved_qs = achieved_qs.filter(entry_date__lte=to_date)
-
-    achieved_totals = {
-        did: val
-        for did, val in achieved_qs
-        .values("doctor_id")
-        .annotate(
-            achieved=Coalesce(
-                Sum(F("quantity") * F("medicine__pts")),
-                Value(Decimal("0")),
-                output_field=DecimalField(),
-            ),
-        )
-        .values_list("doctor_id", "achieved")
-        .order_by()
-    }
-
-    # ── Step 3: build flat rows ─────────────────────────────
     rows = []
+    current_inv_id = None
+    current_balance = Decimal("0")
+
+    # Maintain an overall Sl No for the final display
+    # (could re-sort later if we wanted a global sort, 
+    # but grouping by investment_id makes running balances readable)
     for idx, entry in enumerate(qs.iterator(chunk_size=500), start=1):
-        did = entry.doctor_id
-        doc_inv = inv_map.get(did, {"investment": Decimal("0"), "roi_target": Decimal("0")})
-        investment = doc_inv["investment"]
-        roi_target = doc_inv["roi_target"]
-        achieved = achieved_totals.get(did, Decimal("0"))
-        balance = roi_target - achieved
-
-        # Status logic
-        if roi_target == 0:
-            status = "Pending"
-        elif achieved >= roi_target:
-            status = "Completed"
-        else:
-            status = "In Progress"
-
+        inv = entry.investment
+        if current_inv_id != inv.id:
+            current_inv_id = inv.id
+            current_balance = inv.roi_amount
+        
+        row_value = entry.quantity * entry.medicine.pts
+        current_balance -= row_value
+        
+        status = "Completed" if current_balance <= 0 else "In Progress"
+        
         rows.append({
             "sl_no": idx,
             "doctor_name": entry.doctor.name,
-            "location": entry.doctor.location or "—",
-            "doctor_type": entry.doctor.get_doctor_type_display(),
-            "medicine_name": str(entry.medicine),
             "rep_name": entry.rep.get_full_name() or entry.rep.username,
+            "invested_date": inv.start_date,
+            "expected_roi": inv.roi_amount,
+            "location": entry.doctor.location or "—",
+            "medicine_name": str(entry.medicine),
+            "investment_amount": inv.amount,
+            "value": row_value,
             "quantity": entry.quantity,
-            "value": entry.quantity * entry.medicine.pts,
-            "total_investment": investment,
             "entry_date": entry.entry_date,
-            "balance_roi": balance,
+            "balance_roi": current_balance,
             "status": status,
+            "note": inv.notes or "—",
         })
+
+    if sort == "newest_first":
+        rows.sort(key=lambda x: x["entry_date"], reverse=True)
+    elif sort == "oldest_first":
+        rows.sort(key=lambda x: x["entry_date"])
+    elif sort == "doctor_az":
+        rows.sort(key=lambda x: x["doctor_name"].lower())
+    elif sort == "doctor_za":
+        rows.sort(key=lambda x: x["doctor_name"].lower(), reverse=True)
+    elif sort == "highest_balance":
+        rows.sort(key=lambda x: x["balance_roi"], reverse=True)
+    elif sort == "lowest_balance":
+        rows.sort(key=lambda x: x["balance_roi"])
+    elif sort == "completed_first":
+        rows.sort(key=lambda x: (0 if x["status"] == "Completed" else 1, x["entry_date"]))
+    elif sort == "inprogress_first":
+        rows.sort(key=lambda x: (0 if x["status"] == "In Progress" else 1, x["entry_date"]))
+    else:
+        rows.sort(key=lambda x: x["entry_date"], reverse=True)
+
+    for i, row in enumerate(rows, start=1):
+        row["sl_no"] = i
 
     return rows
 
@@ -251,10 +215,9 @@ def get_report_summary(queryset):
     """
     Aggregate totals across the filtered SalesEntry queryset.
 
-    Also computes total_investment and balance_roi from the set of
-    doctors present in the filtered entries.
+    Computes total_investment and balance_roi dynamically based on the distinct
+    investments present in the filtered entries.
     """
-    # --- Sales totals (from the queryset itself) ---
     agg = queryset.aggregate(
         total_quantity=Coalesce(
             Sum("quantity"), Value(0),
@@ -266,21 +229,20 @@ def get_report_summary(queryset):
         ),
     )
 
-    # --- Investment totals for the doctors in the result set ---
-    doctor_ids = queryset.values_list("doctor_id", flat=True).distinct()
+    investment_ids = queryset.values_list("investment_id", flat=True).distinct()
 
     inv_agg = (
-        Doctor.objects
-        .filter(id__in=doctor_ids)
+        Investment.objects
+        .filter(id__in=investment_ids)
         .aggregate(
             total_investment=Coalesce(
-                Sum("investments__amount"),
+                Sum("amount"),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
             total_roi_amount=Coalesce(
                 Sum(
-                    F("investments__amount") * F("investments__roi_ratio"),
+                    F("amount") * F("roi_ratio"),
                 ),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
@@ -321,15 +283,17 @@ _COLUMNS = [
     ("Sl No", 8),
     ("Doctor", 24),
     ("Area", 18),
-    ("Type", 12),
-    ("Medicine", 24),
     ("Sales Rep", 20),
-    ("Quantity", 10),
-    ("Value (₹)", 16),
     ("Investment (₹)", 16),
+    ("Invested Date", 14),
+    ("Expected ROI (₹)", 16),
+    ("Medicine", 24),
+    ("Qty", 10),
     ("Date", 14),
+    ("Value (₹)", 16),
     ("Balance (₹)", 16),
     ("Status", 14),
+    ("Note", 30),
 ]
 
 _NUM_COLS = len(_COLUMNS)
@@ -375,26 +339,32 @@ def export_to_excel(roi_rows, summary):
         ws.cell(row=row_num, column=1, value=row["sl_no"]).alignment = center_align
         ws.cell(row=row_num, column=2, value=row["doctor_name"]).alignment = data_align
         ws.cell(row=row_num, column=3, value=row["location"]).alignment = data_align
-        ws.cell(row=row_num, column=4, value=row["doctor_type"]).alignment = data_align
-        ws.cell(row=row_num, column=5, value=row["medicine_name"]).alignment = data_align
-        ws.cell(row=row_num, column=6, value=row["rep_name"]).alignment = data_align
-        ws.cell(row=row_num, column=7, value=row["quantity"]).alignment = center_align
+        ws.cell(row=row_num, column=4, value=row["rep_name"]).alignment = data_align
 
-        val_cell = ws.cell(row=row_num, column=8, value=float(row["value"]))
-        val_cell.number_format = currency_fmt
-        val_cell.alignment = right_align
-
-        inv_cell = ws.cell(row=row_num, column=9, value=float(row["total_investment"]))
+        inv_cell = ws.cell(row=row_num, column=5, value=float(row["investment_amount"]))
         inv_cell.number_format = currency_fmt
         inv_cell.alignment = right_align
 
+        ws.cell(row=row_num, column=6, value=row["invested_date"]).alignment = data_align
+
+        roi_cell = ws.cell(row=row_num, column=7, value=float(row["expected_roi"]))
+        roi_cell.number_format = currency_fmt
+        roi_cell.alignment = right_align
+
+        ws.cell(row=row_num, column=8, value=row["medicine_name"]).alignment = data_align
+        ws.cell(row=row_num, column=9, value=row["quantity"]).alignment = center_align
         ws.cell(row=row_num, column=10, value=row["entry_date"]).alignment = data_align
 
-        bal_cell = ws.cell(row=row_num, column=11, value=float(row["balance_roi"]))
+        val_cell = ws.cell(row=row_num, column=11, value=float(row["value"]))
+        val_cell.number_format = currency_fmt
+        val_cell.alignment = right_align
+
+        bal_cell = ws.cell(row=row_num, column=12, value=float(row["balance_roi"]))
         bal_cell.number_format = currency_fmt
         bal_cell.alignment = right_align
 
-        ws.cell(row=row_num, column=12, value=row["status"]).alignment = center_align
+        ws.cell(row=row_num, column=13, value=row["status"]).alignment = center_align
+        ws.cell(row=row_num, column=14, value=row["note"]).alignment = data_align
 
         # Alternate row shading
         if row_num % 2 == 0:

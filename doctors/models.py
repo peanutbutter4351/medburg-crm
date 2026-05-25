@@ -177,7 +177,8 @@ class Investment(BaseModel):
         ordering = ["-start_date"]
 
     def __str__(self):
-        return f"{self.doctor.name} – ₹{self.amount} (×{self.roi_ratio})"
+        date_str = self.start_date.strftime("%b %Y")
+        return f"{self.doctor.name} – ₹{self.amount:.0f} ({date_str})"
 
     # ── computed property (not stored) ───────────────
     @property
