@@ -113,14 +113,17 @@ class SalesEntry(BaseModel):
         if self._state.adding:
             if self.doctor and self.doctor.mode == "prepaid" and not self.investment:
                 raise ValidationError({"investment": "Investment is required for prepaid doctors."})
-        
-        if self.investment and self._state.adding:
-            if self.investment.status == "completed":
+
+        if self.investment:
+            # Cross-FK integrity: investment must belong to the selected doctor
+            if self.doctor_id and self.investment.doctor_id != self.doctor_id:
+                raise ValidationError({"investment": "Investment does not belong to the selected doctor."})
+            if self._state.adding and self.investment.status == "completed":
                 raise ValidationError({"investment": "Completed investments cannot accept new sales entries."})
-            if self.investment.balance <= 0:
-                raise ValidationError({"investment": "Investments with zero or negative balance cannot accept new sales entries."})
 
     def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.full_clean()
         super().save(*args, **kwargs)
         if self.investment:
             self.investment.refresh_status()

@@ -9,7 +9,7 @@ Doctor  ←  M:N  →  Medicine         (via DoctorMedicine through-table)
 ROI logic (computed, NOT stored)
 ────────────────────────────────
 ROI Amount   = Investment.amount × Investment.roi_ratio
-Achieved ROI = Σ (SalesEntry.quantity × Medicine.ptr)  for that doctor
+Achieved ROI = Σ (SalesEntry.quantity × Medicine.pts)  for that doctor
 Balance ROI  = ROI Amount − Achieved ROI
 """
 

@@ -184,7 +184,7 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     @admin.display(description="Achieved ROI")
     def get_achieved_roi(self, obj):
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__ptr"))
+            total=Sum(F("quantity") * F("medicine__pts"))
         )["total"]
         if not achieved:
             return "₹0.00"
@@ -194,7 +194,7 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     def get_balance_roi(self, obj):
         roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__ptr"))
+            total=Sum(F("quantity") * F("medicine__pts"))
         )["total"]
         achieved = float(achieved) if achieved else 0.0
         balance = roi_amount - achieved
@@ -218,7 +218,7 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
             )
         roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__ptr"))
+            total=Sum(F("quantity") * F("medicine__pts"))
         )["total"]
         achieved = float(achieved) if achieved else 0.0
 

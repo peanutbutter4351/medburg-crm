@@ -3,8 +3,8 @@ Medicine catalogue.
 
 Pricing
 ───────
-PTR  (Price To Retailer) → used for value calculations in SalesEntry
-PTS  (Price To Stockist)  → reference only
+PTS  (Price To Stockist) → used for value calculations in SalesEntry
+PTR  (Price To Retailer)  → reference only
 MRP  (Maximum Retail Price) → reference only
 """
 

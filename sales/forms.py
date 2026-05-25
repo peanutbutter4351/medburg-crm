@@ -124,7 +124,5 @@ class SalesEntryForm(forms.ModelForm):
         if investment:
             if investment.status == "completed":
                 self.add_error("investment", "Completed investments cannot accept new sales entries.")
-            if investment.balance <= 0:
-                self.add_error("investment", "Investments with zero or negative balance cannot accept new sales entries.")
 
         return cleaned_data
