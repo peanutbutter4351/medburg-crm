@@ -17,7 +17,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
-from django.db.models import F, Sum
+from django.db.models import Sum
 from django.db.models.functions import Coalesce
 
 from core.constants import (
@@ -188,10 +188,20 @@ class Investment(BaseModel):
 
     @property
     def total_sales_value(self):
-        """SUM of linked sales entry values."""
+        """
+        Sum of value_at_sale across all linked PrepaidSalesEntry rows.
+
+        ARCH-2A: Uses the frozen value_at_sale snapshot field so that
+        medicine price changes can never alter historical investment balances.
+
+        Rows backfilled before ARCH-2A (is_snapshot_legacy=True) use a
+        best-effort snapshot captured at migration time.  Rows without
+        any snapshot (value_at_sale IS NULL) are treated as ₹0 — this
+        can only occur transiently before the backfill migration runs.
+        """
         agg = self.sales_entries.aggregate(
             total=Coalesce(
-                Sum(F("quantity") * F("medicine__pts")),
+                Sum("value_at_sale"),
                 Decimal("0")
             )
         )
@@ -199,7 +209,7 @@ class Investment(BaseModel):
 
     @property
     def balance(self):
-        """expected_roi - total_sales_value"""
+        """Balance = roi_amount − total_sales_value (snapshot-based). Negative is VALID."""
         return self.roi_amount - self.total_sales_value
 
     def refresh_status(self):

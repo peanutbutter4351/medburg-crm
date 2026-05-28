@@ -11,8 +11,12 @@ Phase R1-A additions
 • InvestmentAdmin shows balance, status, and remaining ROI.
 """
 
+from decimal import Decimal
+
 from django.contrib import admin, messages
-from django.db.models import Sum, F
+from django.db import models
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
 from django.utils.html import format_html
 
 from core.admin_mixins import ExcelImportAdminMixin
@@ -183,8 +187,13 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
 
     @admin.display(description="Achieved ROI")
     def get_achieved_roi(self, obj):
+        """
+        Total sales value achieved against this doctor's investments.
+        ARCH-2A: Uses Sum('value_at_sale') — the frozen snapshot field.
+        """
+        from django.db.models import Sum
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__pts"))
+            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
         )["total"]
         if not achieved:
             return "₹0.00"
@@ -192,24 +201,33 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
 
     @admin.display(description="Balance ROI")
     def get_balance_roi(self, obj):
+        """
+        Balance = total_roi_amount − achieved_roi (snapshot-based).
+        ARCH-2A: Uses Sum('value_at_sale') — never live medicine.pts.
+        """
+        from django.db.models import Sum
         roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__pts"))
+            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
         )["total"]
-        achieved = float(achieved) if achieved else 0.0
+        achieved = float(achieved)
         balance = roi_amount - achieved
         if roi_amount == 0:
             return "—"
         color = "#28a745" if balance <= 0 else "#dc3545"
-        formatted = _fmt_currency(balance)
         return format_html(
             '<span style="color:{}; font-weight:600;">{}</span>',
             color,
-            formatted,
+            _fmt_currency(balance),
         )
 
     @admin.display(description="Status")
     def get_status_badge(self, obj):
+        """
+        Status badge derived from snapshot-based balance.
+        ARCH-2A: Aggregates value_at_sale instead of live medicine.pts.
+        """
+        from django.db.models import Sum
         if obj.mode == "postpaid":
             return format_html(
                 '<span style="background:#6c757d; color:#fff; '
@@ -218,9 +236,9 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
             )
         roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
         achieved = obj.sales_entries.aggregate(
-            total=Sum(F("quantity") * F("medicine__pts"))
+            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
         )["total"]
-        achieved = float(achieved) if achieved else 0.0
+        achieved = float(achieved)
 
         if roi_amount == 0:
             label, bg = "No Investment", "#ffc107"

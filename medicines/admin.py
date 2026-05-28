@@ -34,7 +34,7 @@ class MedicineAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     )
     list_filter = ("is_active", "brand")
     search_fields = ("name", "brand")
-    list_editable = ("ptr", "pts", "mrp", "is_active")
+    list_editable = ("ptr", "mrp", "is_active")
     list_per_page = 30
     ordering = ("name",)
 
@@ -49,8 +49,15 @@ class MedicineAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
             "Pricing",
             {
                 "fields": ("ptr", "pts", "mrp"),
-                "description": "PTS is used for sales value calculation. "
-                               "PTR and MRP are for reference only.",
+                "description": (
+                    "<strong style='color:#c62828;'>"
+                    "⚠️ ARCH-2A SAFETY RULE: "
+                    "Changing PTS only affects NEW sales entries going forward. "
+                    "All existing entries use their frozen pts_at_sale snapshot "
+                    "and will NOT be recalculated."
+                    "</strong><br>"
+                    "PTR and MRP are for reference only."
+                ),
             },
         ),
     )

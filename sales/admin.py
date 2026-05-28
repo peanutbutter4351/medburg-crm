@@ -111,19 +111,57 @@ class SalesEntryAdmin(admin.ModelAdmin):
             'padding:2px 6px; border-radius:4px; font-size:11px;">In Progress</span>'
         )
 
-    @admin.display(description="PTS (₹)")
+    @admin.display(description="PTS at Sale (₹)")
     def get_pts(self, obj):
-        return f"₹{obj.medicine.pts:,.2f}"
+        """
+        Show the snapshotted PTS if available, otherwise show live PTS
+        with a legacy marker to make the distinction clear in the admin.
+        """
+        if obj.pts_at_sale is not None:
+            return f"₹{obj.pts_at_sale:,.2f}"
+        # Fallback for pre-backfill rows (should only appear transiently)
+        return format_html(
+            '₹{} <span style="color:#e65100; font-size:10px;" title="Snapshot not yet available"'
+            '>⚠ live</span>',
+            f"{obj.medicine.pts:,.2f}",
+        )
+
+    @admin.display(description="Value at Sale (₹)")
+    def get_value(self, obj):
+        """
+        Show the frozen value_at_sale snapshot.
+        Falls back to live calculation with a legacy marker for pre-backfill rows.
+        """
+        if obj.value_at_sale is not None:
+            marker = (
+                format_html(
+                    ' <span style="color:#e65100; font-size:10px;" '
+                    'title="Best-effort backfill (ARCH-2A legacy)">· legacy</span>'
+                )
+                if obj.is_snapshot_legacy else ""
+            )
+            return format_html("₹{}{}", f"{obj.value_at_sale:,.2f}", marker)
+        return format_html(
+            '₹{} <span style="color:#e65100; font-size:10px;" title="No snapshot yet">'
+            '⚠ live</span>',
+            f"{obj.value:,.2f}",
+        )
 
     @admin.display(description="Value (₹)")
-    def get_value(self, obj):
-        return f"₹{obj.value:,.2f}"
-
-    @admin.display(description="Computed Value (₹)")
     def get_computed_value(self, obj):
+        """Read-only value field shown on the detail form."""
         if obj.pk:
+            if obj.value_at_sale is not None:
+                label = "Snapshot (frozen)" if not obj.is_snapshot_legacy else "Snapshot (legacy backfill)"
+                return format_html(
+                    '<strong style="font-size:1.05em;">{}</strong> '
+                    '<span style="color:#6c757d; font-size:11px;">— {}</span>',
+                    f"₹{obj.value_at_sale:,.2f}",
+                    label,
+                )
             return format_html(
-                '<strong style="font-size:1.05em;">{}</strong>',
+                '<strong style="font-size:1.05em; color:#e65100;">{}</strong> '
+                '<span style="font-size:11px; color:#e65100;">⚠ live (no snapshot)</span>',
                 f"₹{obj.value:,.2f}",
             )
         return "—"
@@ -207,7 +245,7 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
     autocomplete_fields = ("doctor", "medicine")
     list_per_page = 30
     readonly_fields = ("amount", "total_sales_value", "get_balance_display")
-    actions = ["recalculate_amounts", "mark_fully_paid"]
+    actions = ["mark_fully_paid"]
 
     fieldsets = (
         (
@@ -240,8 +278,10 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
                 "fields": ("total_sales_value", "amount"),
                 "description": (
                     "Auto-computed on creation from scoped sales × ROI%. "
-                    "Frozen after first save. Use the 'Recalculate amount' "
-                    "action to refresh."
+                    "Frozen after first save. "
+                    "<strong style='color:#c62828;'>"
+                    "⚠️ Recalculation has been disabled (ARCH-2A financial safety rule)."
+                    "</strong>"
                 ),
             },
         ),
@@ -313,16 +353,26 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
 
         super().save_model(request, obj, form, change)
 
-    @admin.action(description="Recalculate amount from current sales data")
+    @admin.action(description="⚠️ Recalculate amount [DISABLED — ARCH-2A financial safety]")
     def recalculate_amounts(self, request, queryset):
-        """Admin action to explicitly recompute amounts."""
-        count = 0
-        for entry in queryset:
-            entry.recalculate_amount()
-            count += 1
+        """
+        ARCH-2A: This action has been DISABLED.
+
+        Recalculating PostpaidEntry amounts using live medicine.pts would
+        overwrite frozen historical financial records and violate Golden Rule #1
+        (historical values must never change).
+
+        If a genuine correction is needed, contact a superuser to perform
+        a supervised, documented data correction.
+        """
         self.message_user(
             request,
-            f"Recalculated {count} entr{'y' if count == 1 else 'ies'}.",
+            (
+                "⚠️ Recalculation is disabled (ARCH-2A financial safety rule). "
+                "Postpaid amounts are frozen at creation and must not be recalculated "
+                "using current medicine prices. Contact a superuser for data corrections."
+            ),
+            level=messages.ERROR,
         )
 
     @admin.action(description="Mark selected entries as fully paid")

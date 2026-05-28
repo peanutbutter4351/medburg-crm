@@ -1,12 +1,21 @@
 """
 Sales models — SalesEntry and PostpaidEntry.
 
-Business rules
-──────────────
+Business rules  (ARCH-2A Snapshot Accounting)
+──────────────────────────────────────────────
 • Reps enter **quantity** only — never raw value.
-• Value is computed:  quantity × Medicine.pts
-• Achieved ROI = Σ value across all SalesEntry rows for a doctor.
+• On creation:  pts_at_sale  = medicine.pts   (immutable snapshot)
+                value_at_sale = quantity × pts_at_sale  (immutable snapshot)
+• ALL financial calculations use value_at_sale — NEVER live medicine.pts.
+• Achieved ROI = Σ value_at_sale across all SalesEntry rows for an investment.
 • Balance ROI  = Investment.roi_amount − Achieved ROI
+• Negative balance is VALID (over-achieved ROI).
+
+Snapshot fields
+───────────────
+• pts_at_sale       — price at time of sale (frozen forever after creation)
+• value_at_sale     — quantity × pts_at_sale (frozen forever after creation)
+• is_snapshot_legacy— True for rows backfilled before ARCH-2A (best-effort)
 
 PostpaidEntry
 ─────────────
@@ -86,6 +95,41 @@ class SalesEntry(BaseModel):
         help_text="Optional remarks about this entry.",
     )
 
+    # ── ARCH-2A Snapshot fields (frozen at creation, never updated) ───────────
+    pts_at_sale = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=(
+            "medicine.pts at the moment of this sale. "
+            "Frozen on creation — never recalculated. "
+            "All financial calculations must use this field, not medicine.pts."
+        ),
+    )
+    value_at_sale = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=(
+            "quantity × pts_at_sale, computed and frozen at creation. "
+            "This is the immutable financial value of the entry. "
+            "Never recalculated after the first save."
+        ),
+    )
+    is_snapshot_legacy = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "True for entries whose pts_at_sale / value_at_sale were backfilled "
+            "by the ARCH-2A migration rather than captured at sale time. "
+            "These values are best-effort approximations of the original price."
+        ),
+    )
+
     class Meta(BaseModel.Meta):
         verbose_name = "Sales Entry"
         verbose_name_plural = "Sales Entries"
@@ -97,16 +141,41 @@ class SalesEntry(BaseModel):
             f"× {self.quantity} ({self.entry_date})"
         )
 
-    # ── computed property (not stored) ───────────────
+    # ── Value properties ─────────────────────────────────────────────────────
     @property
     def value(self):
-        """Calculated value = quantity × PTS of the medicine."""
+        """
+        The financial value of this entry.
+
+        Returns value_at_sale (frozen snapshot) when available.
+        Falls back to live quantity × medicine.pts ONLY for legacy rows
+        that have not yet been backfilled (is_snapshot_legacy rows are
+        always backfilled, so this path is only hit if snapshot is None).
+
+        After ARCH-2A migration completes, value_at_sale will be non-null
+        for every row and the fallback will never be reached.
+        """
+        if self.value_at_sale is not None:
+            return self.value_at_sale
+        # Fallback: legacy row without snapshot (should not occur after backfill)
         return self.quantity * self.medicine.pts
 
     @property
     def total_value(self):
-        """Alias for value — used by aggregation queries."""
+        """Alias for value — used by template and service aggregation."""
         return self.value
+
+    # ── Snapshot population ──────────────────────────────────────────────────
+    def _capture_snapshot(self):
+        """
+        Capture the immutable price snapshot at sale time.
+
+        Called ONLY during the first save (self._state.adding).
+        Sets pts_at_sale and value_at_sale from medicine.pts.
+        These fields are never overwritten by subsequent saves.
+        """
+        self.pts_at_sale = self.medicine.pts
+        self.value_at_sale = Decimal(str(self.quantity)) * self.pts_at_sale
 
     def clean(self):
         super().clean()
@@ -124,6 +193,9 @@ class SalesEntry(BaseModel):
     def save(self, *args, **kwargs):
         if self._state.adding:
             self.full_clean()
+            # Capture price snapshot before the first write.
+            # This must come AFTER full_clean() so medicine is validated.
+            self._capture_snapshot()
         super().save(*args, **kwargs)
         if self.investment:
             self.investment.refresh_status()
