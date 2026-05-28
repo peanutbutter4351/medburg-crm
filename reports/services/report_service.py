@@ -1,5 +1,5 @@
 """
-Report service layer.
+Report service layer.  (ARCH-2B: Snapshot Accounting)
 
 All filtering, aggregation, and Excel export logic lives here so
 views remain thin and templates receive pre-computed data only.
@@ -7,11 +7,19 @@ views remain thin and templates receive pre-computed data only.
 Performance
 ───────────
 • select_related  — avoids N+1 on doctor / medicine / rep FKs
-• DB-level annotation — value = quantity × medicine__pts
+• DB-level annotation — line_value = value_at_sale (frozen snapshot)
 • Aggregated summary uses the same pre-filtered queryset
-• No Python loops for data computation
+• No Python loops for financial computation — values read from snapshots
 • Subquery-based aggregation for doctor-level ROI to avoid
   cross-join duplication between Investment and SalesEntry.
+
+Snapshot accounting (ARCH-2A / ARCH-2B)
+────────────────────────────────────────
+• ALL value calculations use value_at_sale — NEVER quantity × medicine.pts.
+• pts_at_sale is displayed but never used in arithmetic.
+• medicine.pts is never referenced in this module.
+• Investment totals aggregate by investment identity (PK-list) to avoid
+  the distinct=True / duplicate-amount undercounting bug.
 """
 
 from decimal import Decimal
@@ -80,12 +88,15 @@ def get_report_queryset(
     sort=None,
 ):
     """
-    Return an annotated SalesEntry queryset.
+    Return an annotated SalesEntry queryset for the prepaid report.
 
     Annotation added
     ────────────────
-    line_value  – quantity × medicine.pts  (computed at DB level)
+    line_value — value_at_sale (frozen snapshot, ARCH-2A)
+                 Falls back to 0 for any row where value_at_sale is NULL
+                 (should not occur after the backfill migration).
 
+    Filter: investment__isnull=False selects prepaid entries only.
     All FK look-ups use select_related to avoid N+1.
     """
     qs = (
@@ -93,7 +104,12 @@ def get_report_queryset(
         .filter(investment__isnull=False)
         .select_related("doctor", "medicine", "rep", "investment")
         .annotate(
-            line_value=F("quantity") * F("medicine__pts"),
+            # ARCH-2B: use the frozen snapshot — never live medicine.pts
+            line_value=Coalesce(
+                F("value_at_sale"),
+                Value(Decimal("0")),
+                output_field=DecimalField(),
+            ),
         )
         .order_by("-entry_date", "-created_at")
     )
@@ -127,9 +143,14 @@ def get_doctor_roi_report(
     """
     Return a list of template-ready dicts with one row per
     SalesEntry, enriched with investment-level ROI data.
-    
+
     Running balance calculates progressively per investment,
     processing entries by entry_date ascending, then id ascending.
+
+    ARCH-2B: All value calculations use entry.value_at_sale (the frozen
+    snapshot) — never entry.quantity × entry.medicine.pts.
+    The .value property on SalesEntry already does this (snapshot-first),
+    so row_value = entry.value is equivalent and safe.
     """
     qs = (
         SalesEntry.objects
@@ -153,20 +174,20 @@ def get_doctor_roi_report(
     current_inv_id = None
     current_balance = Decimal("0")
 
-    # Maintain an overall Sl No for the final display
-    # (could re-sort later if we wanted a global sort, 
-    # but grouping by investment_id makes running balances readable)
     for idx, entry in enumerate(qs.iterator(chunk_size=500), start=1):
         inv = entry.investment
         if current_inv_id != inv.id:
             current_inv_id = inv.id
             current_balance = inv.roi_amount
-        
-        row_value = entry.quantity * entry.medicine.pts
+
+        # ARCH-2B: entry.value returns value_at_sale (snapshot-first).
+        # For legacy rows without a snapshot this falls back to live PTS,
+        # but after the ARCH-2A backfill every row has value_at_sale set.
+        row_value = entry.value   # → value_at_sale (frozen)
         current_balance -= row_value
-        
+
         status = "Completed" if current_balance <= 0 else "In Progress"
-        
+
         rows.append({
             "sl_no": idx,
             "doctor_name": entry.doctor.name,
@@ -175,13 +196,15 @@ def get_doctor_roi_report(
             "expected_roi": inv.roi_amount,
             "location": entry.doctor.location or "—",
             "medicine_name": str(entry.medicine),
+            "pts_at_sale": entry.pts_at_sale,          # display only
             "investment_amount": inv.amount,
-            "value": row_value,
+            "value": row_value,                         # frozen snapshot
             "quantity": entry.quantity,
             "entry_date": entry.entry_date,
             "balance_roi": current_balance,
             "status": status,
             "note": inv.notes or "—",
+            "is_legacy": entry.is_snapshot_legacy,     # audit marker
         })
 
     if sort == "newest_first":
@@ -215,35 +238,51 @@ def get_report_summary(queryset):
     """
     Aggregate totals across the filtered SalesEntry queryset.
 
-    Computes total_investment and balance_roi dynamically based on the distinct
-    investments present in the filtered entries.
+    ARCH-2B changes
+    ───────────────
+    • total_value  = Sum("value_at_sale")  [was: Sum(quantity × medicine.pts)]
+    • total_investment / total_roi_amount aggregate by investment PK list —
+      no distinct=True on financial values (fixes duplicate-amount undercounting).
+
+    The investment_ids approach:
+      Collect the distinct investment PKs that appear in the filtered entries,
+      then aggregate those Investment rows directly.  This ensures:
+      - Two investments with the same amount (e.g. 15000 + 15000) are both counted
+      - No cross-join inflation from the SalesEntry → Investment join
     """
     agg = queryset.aggregate(
         total_quantity=Coalesce(
             Sum("quantity"), Value(0),
         ),
+        # ARCH-2B: snapshot-based value aggregation
         total_value=Coalesce(
-            Sum(F("quantity") * F("medicine__pts")),
+            Sum("value_at_sale"),
             Value(Decimal("0")),
             output_field=DecimalField(),
         ),
     )
 
-    investment_ids = queryset.values_list("investment_id", flat=True).distinct()
+    # Collect distinct investment PKs from the filtered queryset.
+    # .distinct() here is on the *PK column* (identity), not on amount values.
+    investment_ids = (
+        queryset
+        .filter(investment_id__isnull=False)
+        .values_list("investment_id", flat=True)
+        .distinct()
+    )
 
     inv_agg = (
         Investment.objects
         .filter(id__in=investment_ids)
         .aggregate(
+            # No distinct=True here — we query exactly the investments we want
             total_investment=Coalesce(
                 Sum("amount"),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
             total_roi_amount=Coalesce(
-                Sum(
-                    F("amount") * F("roi_ratio"),
-                ),
+                Sum(F("amount") * F("roi_ratio")),
                 Value(Decimal("0")),
                 output_field=DecimalField(),
             ),
@@ -303,6 +342,10 @@ def export_to_excel(roi_rows, summary):
     """
     Generate a styled .xlsx workbook from the doctor ROI rows and
     return a BytesIO buffer ready for HttpResponse streaming.
+
+    ARCH-2B: All values written to Excel come from the pre-computed
+    roi_rows dicts, which use value_at_sale (frozen snapshots).
+    No live medicine.pts calculations occur here.
     """
     wb = Workbook()
     ws = wb.active
@@ -355,6 +398,7 @@ def export_to_excel(roi_rows, summary):
         ws.cell(row=row_num, column=9, value=row["quantity"]).alignment = center_align
         ws.cell(row=row_num, column=10, value=row["entry_date"]).alignment = data_align
 
+        # ARCH-2B: row["value"] is already the frozen snapshot value
         val_cell = ws.cell(row=row_num, column=11, value=float(row["value"]))
         val_cell.number_format = currency_fmt
         val_cell.alignment = right_align
@@ -417,4 +461,3 @@ def export_to_excel(roi_rows, summary):
     wb.save(buf)
     buf.seek(0)
     return buf
-

@@ -51,9 +51,9 @@ class MedicineAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
                 "fields": ("ptr", "pts", "mrp"),
                 "description": (
                     "<strong style='color:#c62828;'>"
-                    "⚠️ ARCH-2A SAFETY RULE: "
+                    "⚠️ Note: "
                     "Changing PTS only affects NEW sales entries going forward. "
-                    "All existing entries use their frozen pts_at_sale snapshot "
+                    "All existing entries use the price at the time of their entry "
                     "and will NOT be recalculated."
                     "</strong><br>"
                     "PTR and MRP are for reference only."

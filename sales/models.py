@@ -428,10 +428,23 @@ class PostpaidEntry(BaseModel):
         """
         Aggregate scoped SalesEntry.total_value and apply ROI%.
 
-        Uses the annotation  quantity × medicine__pts  which mirrors
-        the SalesEntry.total_value property at the DB level.
-
         Sets both total_sales_value (snapshot) and amount.
+
+        ╔═══════════════════════════════════════════════════════════════╗
+        ║  ARCH-4A DEFERRED — TWO KNOWN ISSUES                        ║
+        ║                                                               ║
+        ║  Issue 1 — Live PTS:                                         ║
+        ║  Uses Sum(quantity × medicine__pts) — live price at compute  ║
+        ║  time, not a frozen snapshot.  This violates Golden Rule #2  ║
+        ║  for postpaid entries.  Will be fixed in ARCH-4A when        ║
+        ║  PostpaidCampaign and PostpaidSalesEntry replace this model.  ║
+        ║                                                               ║
+        ║  Issue 2 — Engine isolation:                                 ║
+        ║  _get_scoped_sales_qs() queries SalesEntry without filtering  ║
+        ║  by doctor.mode, so prepaid entries for the same             ║
+        ║  doctor+medicine can contaminate postpaid commission amounts. ║
+        ║  Will be fixed in ARCH-4A with the engine split.             ║
+        ╚═══════════════════════════════════════════════════════════════╝
         """
         self.total_sales_value = self._get_scoped_sales_qs().aggregate(
             total=Coalesce(
