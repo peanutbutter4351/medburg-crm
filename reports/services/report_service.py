@@ -50,7 +50,7 @@ def get_report_filter_options():
     """
     doctors = (
         Doctor.objects
-        .filter(is_active=True)
+        .filter(is_active=True, mode="prepaid")
         .order_by("name")
         .values("id", "name")
     )

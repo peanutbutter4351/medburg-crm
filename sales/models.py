@@ -574,10 +574,192 @@ class PostpaidEntry(BaseModel):
     def scope_display(self):
         """Return a short human-readable scope label."""
         if self.payout_type == PAYOUT_TYPE_RANGE and self.start_date and self.end_date:
-            return f"{self.start_date.strftime('%d %b %Y')} – {self.end_date.strftime('%d %b %Y')}"
+            return f"{self.start_date.strftime('%d %b %Y')} \u2013 {self.end_date.strftime('%d %b %Y')}"
         elif self.payout_type == PAYOUT_TYPE_MONTHLY and self.payout_month and self.payout_year:
             import calendar
             month_name = calendar.month_abbr[self.payout_month]
             return f"{month_name} {self.payout_year}"
         return "All Time"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ARCH-4B: Postpaid Engine
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PostpaidCampaign(BaseModel):
+    STATUS_OPEN = 'open'
+    STATUS_LOCKED = 'locked'
+    STATUS_PARTIAL = 'partial'
+    STATUS_SETTLED = 'settled'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_LOCKED, 'Locked'),
+        (STATUS_PARTIAL, 'Partial'),
+        (STATUS_SETTLED, 'Settled'),
+    ]
+
+    doctor = models.ForeignKey('doctors.Doctor', on_delete=models.CASCADE, related_name='postpaid_campaigns')
+    month = models.PositiveSmallIntegerField()
+    year = models.PositiveSmallIntegerField()
+    
+    commission_percentage = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('0.00'))
+    
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True)
+    
+    total_sales_value = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    
+    locked_at = models.DateTimeField(null=True, blank=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Postpaid Campaign"
+        verbose_name_plural = "Postpaid Campaigns"
+        ordering = ['-year', '-month', 'doctor__name']
+        constraints = [
+            models.UniqueConstraint(fields=['doctor', 'month', 'year'], name='unique_campaign_month_year')
+        ]
+
+    def __str__(self):
+        return f"{self.doctor.name} - {self.month}/{self.year} ({self.get_status_display()})"
+
+    def calculate_totals(self):
+        """
+        Recalculate total_sales_value and total_commission from PostpaidSaleEntry.
+        Must be called explicitly (e.g. by PostpaidSaleEntry.save).
+        Does not save the model itself.
+        """
+        agg = self.sales_entries.aggregate(
+            sales=Sum('value_at_sale'),
+            comm=Sum('commission_at_sale')
+        )
+        self.total_sales_value = agg['sales'] or Decimal('0.00')
+        self.total_commission = agg['comm'] or Decimal('0.00')
+
+    def refresh_status(self):
+        """
+        Recalculate paid_amount from CampaignPayment ledger and advance status.
+        """
+        from django.utils import timezone
+        
+        agg = self.payments.aggregate(total=Sum('amount'))
+        self.paid_amount = agg['total'] or Decimal('0.00')
+
+        if self.paid_amount >= self.total_commission and self.total_commission > Decimal('0'):
+            new_status = self.STATUS_SETTLED
+        elif self.paid_amount > Decimal('0') and self.paid_amount < self.total_commission:
+            new_status = self.STATUS_PARTIAL
+        elif self.status not in (self.STATUS_OPEN, self.STATUS_LOCKED):
+            # Fallback if payments were somehow removed
+            new_status = self.STATUS_LOCKED
+        else:
+            new_status = self.status
+
+        if new_status == self.STATUS_SETTLED and not self.settled_at:
+            self.settled_at = timezone.now()
+            
+        if self.status != new_status:
+            self.status = new_status
+            
+        self.save(update_fields=['paid_amount', 'status', 'settled_at', 'updated_at'])
+
+
+class PostpaidSaleEntry(BaseModel):
+    campaign = models.ForeignKey(PostpaidCampaign, on_delete=models.CASCADE, related_name='sales_entries')
+    medicine = models.ForeignKey('medicines.Medicine', on_delete=models.CASCADE, related_name='postpaid_sales')
+    quantity = models.PositiveIntegerField()
+    
+    pts_at_sale = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
+    value_at_sale = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    commission_percentage_at_sale = models.DecimalField(max_digits=6, decimal_places=2, editable=False)
+    commission_at_sale = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    
+    entry_date = models.DateField()
+    rep = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Postpaid Sale Entry"
+        verbose_name_plural = "Postpaid Sale Entries"
+        ordering = ['-entry_date', '-created_at']
+
+    def __str__(self):
+        return f"{self.medicine.name} x {self.quantity} for {self.campaign.doctor.name}"
+
+    def clean(self):
+        super().clean()
+        if self.campaign_id:
+            # Check if this is a new attachment or reassignment to a campaign
+            campaign_changed = True
+            if self.pk:
+                try:
+                    old_campaign_id = PostpaidSaleEntry.objects.values_list('campaign_id', flat=True).get(pk=self.pk)
+                    campaign_changed = (old_campaign_id != self.campaign_id)
+                except PostpaidSaleEntry.DoesNotExist:
+                    pass
+            
+            if self._state.adding or campaign_changed:
+                if self.campaign.status in (
+                    PostpaidCampaign.STATUS_LOCKED,
+                    PostpaidCampaign.STATUS_PARTIAL,
+                    PostpaidCampaign.STATUS_SETTLED,
+                ):
+                    raise ValidationError({"campaign": "Cannot attach sales to a locked, partial, or settled campaign."})
+
+    def _capture_snapshot(self):
+        self.pts_at_sale = self.medicine.pts
+        self.value_at_sale = Decimal(self.quantity) * self.pts_at_sale
+        self.commission_percentage_at_sale = self.campaign.commission_percentage
+        self.commission_at_sale = self.value_at_sale * (self.commission_percentage_at_sale / Decimal('100.0'))
+
+    def save(self, *args, **kwargs):
+        # 1. Capture snapshots on creation
+        if self._state.adding:
+            self.full_clean()
+            self._capture_snapshot()
+            
+        super().save(*args, **kwargs)
+        
+        # 2. Update campaign totals
+        if self.campaign_id:
+            self.campaign.calculate_totals()
+            self.campaign.save(update_fields=['total_sales_value', 'total_commission', 'updated_at'])
+
+
+class CampaignPayment(BaseModel):
+    campaign = models.ForeignKey(PostpaidCampaign, on_delete=models.CASCADE, related_name='payments')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_date = models.DateField()
+    reference = models.CharField(max_length=200, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Campaign Payment"
+        verbose_name_plural = "Campaign Payments"
+        ordering = ['-payment_date', '-created_at']
+
+    def __str__(self):
+        return f"\u20b9{self.amount} for {self.campaign}"
+
+    def clean(self):
+        super().clean()
+        if self.pk:
+            raise ValidationError("Ledger entries are append-only and cannot be modified.")
+        if self.amount is not None and self.amount <= Decimal('0'):
+            raise ValidationError({"amount": "Payment amount must be positive."})
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("Ledger entries cannot be modified. Cancel and recreate instead.")
+        
+        self.full_clean()
+        super().save(*args, **kwargs)
+        
+        # Must trigger refresh_status on the campaign
+        self.campaign.refresh_status()
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Ledger entries cannot be deleted.")
 

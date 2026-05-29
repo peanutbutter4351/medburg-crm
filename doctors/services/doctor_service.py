@@ -101,7 +101,7 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
 
     qs = (
         Doctor.objects
-        .filter(is_active=True)
+        .filter(is_active=True, mode="prepaid")
         .select_related("assigned_rep")
         .annotate(
             total_investment=Coalesce(
@@ -125,7 +125,6 @@ def get_dashboard_queryset(*, rep_id=None, location=None, status=None, search=No
         )
         .annotate(
             roi_status=Case(
-                When(mode="postpaid", then=Value("Postpaid")),
                 When(total_roi_amount=Decimal("0"), then=Value("No Investment")),
                 When(achieved_roi__gte=F("total_roi_amount"), then=Value("Completed")),
                 When(achieved_roi__gt=Decimal("0"), then=Value("In Progress")),
@@ -217,7 +216,6 @@ def get_filter_options():
         "In Progress",
         "Pending",
         "No Investment",
-        "Postpaid",
     ]
 
     return {

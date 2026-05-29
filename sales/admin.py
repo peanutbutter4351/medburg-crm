@@ -57,7 +57,6 @@ class SalesEntryAdmin(admin.ModelAdmin):
     list_filter = (
         "entry_date",
         "investment__status",
-        "doctor__mode",
         "doctor__doctor_type",
         "rep",
     )
@@ -231,7 +230,7 @@ class SalesEntryAdmin(admin.ModelAdmin):
         )
 
 
-@admin.register(PostpaidEntry)
+# @admin.register(PostpaidEntry)
 class PostpaidEntryAdmin(admin.ModelAdmin):
     """
     Postpaid entry management.

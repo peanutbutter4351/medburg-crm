@@ -120,7 +120,6 @@
                         <th>Doctor</th>
                         <th>Location</th>
                         <th>Rep</th>
-                        <th>Mode</th>
                         <th class="text-right">Investment</th>
                         <th class="text-right">ROI Target</th>
                         <th class="text-right">Achieved</th>
@@ -147,13 +146,6 @@
                             <span class="text-crm-muted">—</span>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if doc.mode == "prepaid" %}
-                            <span class="crm-badge prepaid">Prepaid</span>
-                            {% else %}
-                            <span class="crm-badge postpaid">Postpaid</span>
-                            {% endif %}
-                        </td>
                         <td class="text-right value-cell">
                             {% if doc.total_investment %}₹{{ doc.total_investment|floatformat:0 }}{% else %}—{% endif %}
                         </td>
@@ -164,7 +156,7 @@
                             ₹{{ doc.achieved_roi|floatformat:0 }}
                         </td>
                         <td class="text-right {% if doc.balance_roi > 0 %}text-negative{% else %}text-positive{% endif %}">
-                            {% if doc.mode == "postpaid" %}—{% else %}₹{{ doc.balance_roi|floatformat:0 }}{% endif %}
+                            ₹{{ doc.balance_roi|floatformat:0 }}
                         </td>
 
                         <!-- Progress bar -->
@@ -190,14 +182,12 @@
                             <span class="crm-badge pending">Pending</span>
                             {% elif doc.roi_status == "No Investment" %}
                             <span class="crm-badge no-investment">No Investment</span>
-                            {% elif doc.roi_status == "Postpaid" %}
-                            <span class="crm-badge postpaid">Postpaid</span>
                             {% endif %}
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="11" class="text-center" style="padding: 60px 20px;">
+                        <td colspan="10" class="text-center" style="padding: 60px 20px;">
                             <div class="empty-state">
                                 <i class="bi bi-inbox"></i>
                                 <p>No doctors found matching your filters.</p>
