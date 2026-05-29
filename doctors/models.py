@@ -2,20 +2,21 @@
 Doctor models — profile, investments, and medicine mapping.
 
 Relationships
-─────────────
-Doctor  ←  1:N  →  Investment       (multiple investments per doctor)
-Doctor  ←  M:N  →  Medicine         (via DoctorMedicine through-table)
+───────────
+ Doctor  ←  1:N  →  Investment       (multiple investments per doctor)
+ Doctor  ←  M:N  →  Medicine         (via DoctorMedicine through-table)
 
-ROI logic (computed, NOT stored)
-────────────────────────────────
+ROI logic (ARCH-2A snapshot accounting)
+───────────────────────────────────────
 ROI Amount   = Investment.amount × Investment.roi_ratio
-Achieved ROI = Σ (SalesEntry.quantity × Medicine.pts)  for that doctor
+Achieved ROI = Σ SalesEntry.value_at_sale  (frozen snapshot, NEVER live PTS)
 Balance ROI  = ROI Amount − Achieved ROI
 """
 
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -103,7 +104,7 @@ class Doctor(BaseModel):
 
     def clean(self):
         super().clean()
-        
+
         # Trim whitespace for required/existing string fields
         if self.name:
             self.name = self.name.strip()
@@ -115,12 +116,32 @@ class Doctor(BaseModel):
         # Normalize optional fields: trim, lowercase email, empty string to None
         if self.phone_number is not None:
             self.phone_number = self.phone_number.strip() or None
-            
+
         if self.email is not None:
             self.email = self.email.strip().lower() or None
-            
+
         if self.specialization is not None:
             self.specialization = self.specialization.strip() or None
+
+        # ARCH-3B (W-4): block mode change prepaid → postpaid while active investments exist.
+        # A doctor cannot switch to postpaid while in-progress investments are outstanding,
+        # because the dashboard would show hybrid state and investment balances would be orphaned.
+        if self.pk:
+            try:
+                original = Doctor.objects.get(pk=self.pk)
+                if (
+                    original.mode == DOCTOR_MODE_PREPAID
+                    and self.mode != DOCTOR_MODE_PREPAID
+                    and self.investments.filter(status="in_progress").exists()
+                ):
+                    raise ValidationError({
+                        "mode": (
+                            "Cannot change mode to postpaid while this doctor has active "
+                            "(in-progress) investments. Complete or remove all investments first."
+                        )
+                    })
+            except Doctor.DoesNotExist:
+                pass
 
     def __str__(self):
         return self.name
@@ -212,6 +233,31 @@ class Investment(BaseModel):
         """Balance = roi_amount − total_sales_value (snapshot-based). Negative is VALID."""
         return self.roi_amount - self.total_sales_value
 
+    def clean(self):
+        """
+        ARCH-3B (W-2): Block manually setting status = completed when balance > 0.
+
+        Investment auto-completion is handled by refresh_status() which fires
+        after every SalesEntry save.  Direct manual status overrides via the
+        admin form are blocked here unless the balance is already <= 0.
+
+        Superusers can bypass this guard by editing the database directly,
+        which is intentional for emergency corrections.
+        """
+        super().clean()
+        if (
+            self.status == self.STATUS_COMPLETED
+            and self.pk  # only on existing records (balance is DB-derived)
+            and self.balance > 0
+        ):
+            raise ValidationError({
+                "status": (
+                    f"Cannot mark this investment as Completed: "
+                    f"balance is still \u20b9{self.balance:,.2f}. "
+                    "Investment auto-completes when balance \u2264 \u20b90 via sales entries."
+                )
+            })
+
     def refresh_status(self):
         """
         Automatically set:
@@ -222,10 +268,11 @@ class Investment(BaseModel):
             new_status = self.STATUS_COMPLETED
         else:
             new_status = self.STATUS_IN_PROGRESS
-            
+
         if self.status != new_status:
             self.status = new_status
             self.save(update_fields=["status", "updated_at"])
+
 
 
 class DoctorMedicine(BaseModel):

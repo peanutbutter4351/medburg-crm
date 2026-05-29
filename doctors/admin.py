@@ -185,89 +185,148 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
             return "—"
         return _fmt_currency(total)
 
-    @admin.display(description="Achieved ROI")
+    @admin.display(description="Achieved ROI", ordering="achieved_roi")
     def get_achieved_roi(self, obj):
         """
-        Total sales value achieved against this doctor's investments.
-        ARCH-2A: Uses Sum('value_at_sale') — the frozen snapshot field.
+        Reads the achieved_roi annotation injected by get_queryset().
+        ARCH-3B: No per-row DB query — annotation pre-computed for the whole page.
         """
-        from django.db.models import Sum
-        achieved = obj.sales_entries.aggregate(
-            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
-        )["total"]
-        if not achieved:
+        val = getattr(obj, "achieved_roi", None)
+        if not val:
             return "₹0.00"
-        return _fmt_currency(achieved)
+        return _fmt_currency(val)
 
-    @admin.display(description="Balance ROI")
+    @admin.display(description="Balance ROI", ordering="balance_roi")
     def get_balance_roi(self, obj):
         """
-        Balance = total_roi_amount − achieved_roi (snapshot-based).
-        ARCH-2A: Uses Sum('value_at_sale') — never live medicine.pts.
+        Reads balance_roi annotation injected by get_queryset().
+        ARCH-3B: No per-row DB query.
         """
-        from django.db.models import Sum
-        roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
-        achieved = obj.sales_entries.aggregate(
-            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
-        )["total"]
-        achieved = float(achieved)
-        balance = roi_amount - achieved
-        if roi_amount == 0:
+        roi_amount = getattr(obj, "total_roi_amount_admin", None)
+        if roi_amount is None:
+            # Fallback for objects loaded outside the annotated queryset
+            roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
+        else:
+            roi_amount = float(roi_amount)
+        balance = getattr(obj, "balance_roi", None)
+        if balance is None or roi_amount == 0:
             return "—"
-        color = "#28a745" if balance <= 0 else "#dc3545"
+        color = "#28a745" if float(balance) <= 0 else "#dc3545"
         return format_html(
             '<span style="color:{}; font-weight:600;">{}</span>',
             color,
             _fmt_currency(balance),
         )
 
-    @admin.display(description="Status")
+    @admin.display(description="Status", ordering="roi_status")
     def get_status_badge(self, obj):
         """
-        Status badge derived from snapshot-based balance.
-        ARCH-2A: Aggregates value_at_sale instead of live medicine.pts.
+        Reads roi_status annotation injected by get_queryset().
+        ARCH-3B: No per-row DB query.
         """
-        from django.db.models import Sum
         if obj.mode == "postpaid":
             return format_html(
                 '<span style="background:#6c757d; color:#fff; '
                 'padding:2px 8px; border-radius:4px; font-size:11px;">'
                 "Postpaid</span>"
             )
-        roi_amount = sum(float(inv.roi_amount) for inv in obj.investments.all())
-        achieved = obj.sales_entries.aggregate(
-            total=Coalesce(Sum("value_at_sale"), Decimal("0"), output_field=models.DecimalField())
-        )["total"]
-        achieved = float(achieved)
-
-        if roi_amount == 0:
-            label, bg = "No Investment", "#ffc107"
-        elif achieved >= roi_amount:
-            label, bg = "Completed", "#28a745"
-        elif achieved > 0:
-            label, bg = "In Progress", "#17a2b8"
-        else:
-            label, bg = "Pending", "#dc3545"
-
+        status = getattr(obj, "roi_status", None)
+        BADGE = {
+            "Completed":     ("#28a745", "Completed"),
+            "In Progress":   ("#17a2b8", "In Progress"),
+            "Pending":       ("#dc3545", "Pending"),
+            "No Investment": ("#ffc107", "No Investment"),
+        }
+        bg, label = BADGE.get(status, ("#6c757d", status or "Unknown"))
         return format_html(
-            '<span style="background:{}; color:#fff; '
+            '<span style="background:{}; color:{}; '
             'padding:2px 8px; border-radius:4px; font-size:11px;">'
             "{}</span>",
             bg,
+            "#fff" if bg != "#ffc107" else "#212529",
             label,
         )
 
     def get_queryset(self, request):
         """
-        Annotate total investment for ordering and prefetch related sets
-        to eliminate N+1 queries in the computed columns.
+        Annotate all financial columns at the queryset level to eliminate
+        N+1 queries from the computed display columns.
+
+        ARCH-3B: Injects the same Subquery pattern as doctor_service.py:
+          • total_investment      — active (in_progress) investment amount sum
+          • total_roi_amount_admin — active ROI target sum
+          • achieved_roi          — Sum(value_at_sale) for prepaid entries
+          • balance_roi           — total_roi_amount_admin − achieved_roi
+          • roi_status            — Completed / In Progress / Pending / No Investment
+
+        Each annotation is one correlated Subquery — O(1) queries regardless
+        of how many doctors appear on the page.
         """
-        qs = super().get_queryset(request)
-        return (
-            qs
-            .prefetch_related("investments", "sales_entries")
-            .annotate(total_investment=Sum("investments__amount"))
+        from django.db.models import (
+            Case, CharField, F, IntegerField, OuterRef,
+            Subquery, Value, When, DecimalField,
         )
+        from doctors.models import Investment
+        from sales.models import SalesEntry
+
+        # Subquery: total active investment amount per doctor
+        inv_amount_sq = (
+            Investment.objects
+            .filter(doctor_id=OuterRef("pk"), status=Investment.STATUS_IN_PROGRESS)
+            .values("doctor_id")
+            .annotate(t=Sum("amount"))
+            .values("t")[:1]
+        )
+
+        # Subquery: total active ROI target per doctor
+        inv_roi_sq = (
+            Investment.objects
+            .filter(doctor_id=OuterRef("pk"), status=Investment.STATUS_IN_PROGRESS)
+            .values("doctor_id")
+            .annotate(t=Sum(F("amount") * F("roi_ratio")))
+            .values("t")[:1]
+        )
+
+        # Subquery: sum of value_at_sale (snapshot) per doctor for prepaid entries
+        achieved_sq = (
+            SalesEntry.objects
+            .filter(doctor_id=OuterRef("pk"), investment__isnull=False)
+            .values("doctor_id")
+            .annotate(t=Sum("value_at_sale"))
+            .values("t")[:1]
+        )
+
+        qs = (
+            super().get_queryset(request)
+            .annotate(
+                total_investment=Coalesce(
+                    Subquery(inv_amount_sq, output_field=DecimalField()),
+                    Value(Decimal("0")), output_field=DecimalField(),
+                ),
+                total_roi_amount_admin=Coalesce(
+                    Subquery(inv_roi_sq, output_field=DecimalField()),
+                    Value(Decimal("0")), output_field=DecimalField(),
+                ),
+                achieved_roi=Coalesce(
+                    Subquery(achieved_sq, output_field=DecimalField()),
+                    Value(Decimal("0")), output_field=DecimalField(),
+                ),
+            )
+            .annotate(
+                balance_roi=F("total_roi_amount_admin") - F("achieved_roi"),
+            )
+            .annotate(
+                roi_status=Case(
+                    When(mode="postpaid", then=Value("Postpaid")),
+                    When(total_roi_amount_admin=Decimal("0"), then=Value("No Investment")),
+                    When(achieved_roi__gte=F("total_roi_amount_admin"), then=Value("Completed")),
+                    When(achieved_roi__gt=Decimal("0"), then=Value("In Progress")),
+                    default=Value("Pending"),
+                    output_field=CharField(),
+                ),
+            )
+        )
+        return qs
 
     # ── Delete protection (R1-A) ──────────────────────
 
@@ -432,18 +491,37 @@ class InvestmentAdmin(admin.ModelAdmin):
         )
 
     # ── Completed investment protection (R1-A) ────────
+    # ARCH-3B (W-3): also lock financial fields once sales exist
 
+    # Fields locked for completed investments (non-superusers)
     _PROTECTED_FIELDS = ("amount", "roi_ratio", "start_date", "status", "doctor", "notes")
+    # Fields locked once any sales entry is linked (non-superusers)
+    _FINANCIAL_FIELDS = ("amount", "roi_ratio")
 
     def get_readonly_fields(self, request, obj=None):
         """
-        Non-superusers cannot edit any meaningful field on a completed investment.
-        Superusers retain full edit access for corrections.
+        Two-tier readonly protection for non-superusers:
+
+        Tier 1 (R1-A) — completed investments:
+          All meaningful fields are readonly once status = completed.
+
+        Tier 2 (ARCH-3B W-3) — investments with linked sales entries:
+          amount and roi_ratio become readonly once any SalesEntry is linked.
+          Changing these would retroactively alter roi_amount and therefore
+          balance with no audit trail.
+
+        Superusers retain full edit access for supervised corrections.
         """
         base = list(self.readonly_fields)
-        if obj and obj.pk and obj.status == Investment.STATUS_COMPLETED:
-            if not request.user.is_superuser:
+        if not obj or not obj.pk:
+            return base
+        if not request.user.is_superuser:
+            # Tier 1: all fields locked for completed investments
+            if obj.status == Investment.STATUS_COMPLETED:
                 base = list(set(base) | set(self._PROTECTED_FIELDS))
+            # Tier 2: financial fields locked once sales exist
+            elif obj.sales_entries.exists():
+                base = list(set(base) | set(self._FINANCIAL_FIELDS))
         return base
 
     def has_change_permission(self, request, obj=None):

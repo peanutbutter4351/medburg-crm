@@ -191,14 +191,48 @@ class SalesEntry(BaseModel):
                 raise ValidationError({"investment": "Completed investments cannot accept new sales entries."})
 
     def save(self, *args, **kwargs):
+        # ── Detect investment FK change before writing ──────────────────────
+        # On creation, _state.adding is True and there is no old record.
+        # On update, we fetch the current DB value of investment_id so we can
+        # refresh the OLD investment's balance after a reassignment.
+        old_investment_id = None
+        if not self._state.adding and self.pk:
+            try:
+                old_investment_id = (
+                    SalesEntry.objects
+                    .filter(pk=self.pk)
+                    .values_list("investment_id", flat=True)
+                    .get()
+                )
+            except SalesEntry.DoesNotExist:
+                old_investment_id = None
+
         if self._state.adding:
             self.full_clean()
             # Capture price snapshot before the first write.
             # This must come AFTER full_clean() so medicine is validated.
             self._capture_snapshot()
+
         super().save(*args, **kwargs)
+
+        # ── Refresh investment balances after save ──────────────────────────
+        # Always refresh the current (new) investment if set.
         if self.investment:
             self.investment.refresh_status()
+
+        # ARCH-3B (W-5): also refresh the OLD investment when the FK changed.
+        # Without this, the old investment's balance stays stale until the
+        # next SalesEntry linked to it is saved.
+        if (
+            old_investment_id
+            and old_investment_id != self.investment_id
+        ):
+            from doctors.models import Investment as Inv
+            try:
+                old_inv = Inv.objects.get(pk=old_investment_id)
+                old_inv.refresh_status()
+            except Inv.DoesNotExist:
+                pass  # Investment was deleted concurrently — safe to ignore.
 
 
 class PostpaidEntry(BaseModel):

@@ -33,6 +33,13 @@ class SalesEntryAdmin(admin.ModelAdmin):
     - Computed value readonly field in detail form.
     - Useful filters: investment status, doctor mode, rep, date.
     - Delete restricted to superusers.
+
+    ARCH-3B (W-1) hardening:
+    - After creation, non-superusers cannot change: doctor, medicine,
+      quantity, investment, rep, entry_date.
+    - Snapshots are immutable at model level (editable=False);
+      locking source fields prevents quantity/snapshot divergence.
+    - Superusers retain full edit access for corrections.
     """
 
     list_display = (
@@ -88,6 +95,22 @@ class SalesEntryAdmin(admin.ModelAdmin):
         ),
     )
     readonly_fields = ("get_computed_value",)
+
+    # Fields locked after creation for non-superusers (ARCH-3B W-1)
+    _POST_CREATION_LOCKED = ("rep", "doctor", "investment", "medicine", "quantity", "entry_date")
+
+    def get_readonly_fields(self, request, obj=None):
+        """
+        After an entry is saved (obj.pk exists), lock the source fields for
+        non-superusers to prevent quantity/snapshot divergence.
+
+        Superusers can still edit all fields for supervised corrections.
+        During creation (obj is None) nothing extra is locked.
+        """
+        base = list(self.readonly_fields)
+        if obj and obj.pk and not request.user.is_superuser:
+            base = list(set(base) | set(self._POST_CREATION_LOCKED))
+        return base
 
     # ── Computed columns ─────────────────────────────
 
