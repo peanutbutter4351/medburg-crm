@@ -21,11 +21,11 @@
 
 
 <!-- ─── Dashboard Navigation ─── -->
-<div class="d-flex justify-content-center mb-5 mt-2">
-    <div class="btn-group shadow-sm" role="group" style="border-radius: var(--radius-md); overflow: hidden;">
-        <button type="button" class="btn btn-outline-primary fw-bold px-4 py-2" onclick="switchDashboardSection('prepaid')" id="btn-prepaid">PREPAID</button>
-        <button type="button" class="btn btn-primary fw-bold px-4 py-2" onclick="switchDashboardSection('home')" id="btn-home">HOME</button>
-        <button type="button" class="btn btn-outline-primary fw-bold px-4 py-2" onclick="switchDashboardSection('postpaid')" id="btn-postpaid">POSTPAID</button>
+<div class="d-flex justify-content-center mb-4 mt-2">
+    <div class="crm-switcher shadow-sm">
+        <button type="button" class="switcher-btn" onclick="switchDashboardSection('prepaid')" id="btn-prepaid">PREPAID</button>
+        <button type="button" class="switcher-btn active" onclick="switchDashboardSection('home')" id="btn-home">HOME</button>
+        <button type="button" class="switcher-btn" onclick="switchDashboardSection('postpaid')" id="btn-postpaid">POSTPAID</button>
     </div>
 </div>
 
@@ -529,11 +529,9 @@
             document.getElementById('dashboard-' + s + '-section').style.display = (s === section) ? 'block' : 'none';
             const btn = document.getElementById('btn-' + s);
             if (s === section) {
-                btn.classList.remove('btn-outline-primary');
-                btn.classList.add('btn-primary');
+                btn.classList.add('active');
             } else {
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-outline-primary');
+                btn.classList.remove('active');
             }
         });
     }

@@ -45,7 +45,7 @@
                 </a>
             </li>
 
-            <div class="sidebar-label mt-4">Prepaid</div>
+            <div class="sidebar-label mt-2">PREPAID</div>
             <li>
                 <a href="{% url 'sales:prepaid_entry' %}"
                    class="{% if request.resolver_match.url_name == 'prepaid_entry' %}active{% endif %}">
@@ -61,7 +61,7 @@
             </li>
             {% endif %}
 
-            <div class="sidebar-label mt-4">Postpaid</div>
+            <div class="sidebar-label mt-2">POSTPAID</div>
             <li>
                 <a href="{% url 'sales:postpaid_entry' %}"
                    class="{% if request.resolver_match.url_name == 'postpaid_entry' %}active{% endif %}">
@@ -90,7 +90,7 @@
             {% endif %}
 
             {% if user.is_admin_user %}
-            <div class="sidebar-label mt-4">System</div>
+            <div class="sidebar-label mt-2">SYSTEM</div>
             <li>
                 <a href="/admin/core/importlog/"
                    class="{% if request.path == '/admin/core/importlog/' %}active{% endif %}">

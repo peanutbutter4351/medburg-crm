@@ -6,6 +6,7 @@
 /* ── CSS Variables ─────────────────────────────── */
 :root {
     --brand-primary:  #efa743;
+    --brand-gold:     #efa743;
     --brand-success:  #22c55e;
     --brand-danger:   #ef4444;
     --brand-info:     #3b82f6;
@@ -123,12 +124,22 @@ body {
 
 
 .sidebar-label {
-    padding: 18px 24px 8px;
-    font-size: .68rem;
+    padding: 10px 24px 4px;
+    font-size: .74rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: #475569;
+    letter-spacing: 1.5px;
+    color: var(--brand-primary);
+    display: flex;
+    align-items: center;
+}
+
+.sidebar-label::after {
+    content: '';
+    flex: 1;
+    margin-left: 8px;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(239, 167, 67, 0.25), transparent);
 }
 
 .sidebar-nav {
@@ -142,7 +153,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 11px 24px;
+    padding: 8px 24px;
     color: #94a3b8;
     text-decoration: none;
     font-size: .88rem;
@@ -671,6 +682,7 @@ body {
     transition: all .25s cubic-bezier(.4,0,.2,1);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     text-decoration: none;
 }
@@ -699,6 +711,7 @@ body {
     transition: var(--transition);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     text-decoration: none;
 }
@@ -720,6 +733,7 @@ body {
     transition: var(--transition);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     text-decoration: none;
 }
@@ -1008,7 +1022,7 @@ body {
 
 /* ── Typography Hierarchy ─────────────────────── */
 .topbar-title { font-size: var(--font-size-page-title); }
-.sidebar-label { font-size: var(--font-size-meta); margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.sidebar-label { font-size: 0.74rem; margin-top: 0.75rem; margin-bottom: 0.25rem; }
 .kpi-label { font-size: var(--font-size-meta); }
 .data-card-title { font-size: var(--font-size-card-title); }
 .crm-form .form-label { font-size: var(--font-size-body); }
@@ -1068,4 +1082,75 @@ body {
     .topbar { padding: 0 16px; }
     .topbar-search { display: none; }
     .filter-card .row > div { margin-bottom: 12px; }
+}
+
+/* ── CRM Switcher ──────────────────────────────── */
+.crm-switcher {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 4px;
+    display: inline-flex;
+    box-shadow: var(--shadow-sm);
+}
+
+.switcher-btn {
+    padding: 10px 24px;
+    font-weight: 600;
+    font-size: .9rem;
+    transition: all .2s ease;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    background: transparent;
+    color: var(--brand-primary);
+}
+
+.switcher-btn:hover {
+    background: rgba(212, 163, 57, .12);
+}
+
+.switcher-btn.active {
+    background: var(--brand-gold);
+    color: var(--text-primary);
+}
+
+.switcher-btn.active:hover {
+    background: var(--brand-gold);
+    color: var(--text-primary);
+}
+
+/* ── Bootstrap Primary overrides for consistency ─ */
+.text-primary {
+    color: var(--brand-primary) !important;
+}
+
+.btn-primary {
+    background-color: var(--brand-primary) !important;
+    border-color: var(--brand-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active {
+    background-color: var(--primary-dark) !important;
+    border-color: var(--primary-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+.btn-outline-primary {
+    color: var(--brand-primary) !important;
+    border-color: var(--brand-primary) !important;
+}
+
+.btn-outline-primary:hover, .btn-outline-primary:focus, .btn-outline-primary:active {
+    background-color: var(--brand-primary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--brand-primary) !important;
+}
+
+.alert-info {
+    background-color: rgba(239, 167, 67, 0.08) !important;
+    color: var(--primary-dark) !important;
+    border: 1px solid rgba(239, 167, 67, 0.15) !important;
 }
