@@ -8,7 +8,13 @@ from django.contrib.auth import get_user_model
 from doctors.models import Doctor, DoctorMedicine, Investment
 from medicines.models import Medicine
 from sales.models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment
-from doctors.services.doctor_service import get_dashboard_alerts, get_dashboard_queryset
+from doctors.services.doctor_service import (
+    get_dashboard_alerts,
+    get_dashboard_queryset,
+    get_prepaid_admin_metrics,
+    get_unified_activity_feed,
+    get_active_postpaid_campaigns,
+)
 
 User = get_user_model()
 
@@ -373,3 +379,257 @@ class PrepaidDashboardTests(TestCase):
         self.assertEqual(doc_metric2.total_roi_amount, Decimal("4000.00"))
         self.assertEqual(doc_metric2.achieved_roi, Decimal("1500.00"))  # excludes the 2500 from inv_completed
         self.assertEqual(doc_metric2.balance_roi, Decimal("2500.00"))   # 4000 - 1500 = 2500
+
+
+class DashboardStabilizationTests(TestCase):
+    def setUp(self):
+        self.rep = User.objects.create_user(username="rep_dashboard", password="pwd", role="rep")
+        self.medicine = Medicine.objects.create(
+            name="Test Med",
+            pts=Decimal("100.00"),
+            ptr=Decimal("80.00"),
+            mrp=Decimal("120.00"),
+            is_active=True
+        )
+
+        self.prepaid_doc = Doctor.objects.create(
+            name="Dr. Prepaid Dashboard",
+            mode="prepaid",
+            assigned_rep=self.rep,
+            is_active=True
+        )
+        DoctorMedicine.objects.create(doctor=self.prepaid_doc, medicine=self.medicine)
+
+        self.postpaid_doc = Doctor.objects.create(
+            name="Dr. Postpaid Dashboard",
+            mode="postpaid",
+            assigned_rep=self.rep,
+            is_active=True
+        )
+        DoctorMedicine.objects.create(doctor=self.postpaid_doc, medicine=self.medicine)
+
+    def test_recovery_rate_active_records_only_and_not_clamped(self):
+        """
+        Validate that active recovery rate works only on STATUS_IN_PROGRESS investments
+        and does not clamp at 100% (can exceed 100%).
+        """
+        # Completed investment (should be ignored by active recovery rate)
+        inv_comp = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=60),
+            status=Investment.STATUS_IN_PROGRESS
+        )
+        SalesEntry.objects.create(
+            rep=self.rep,
+            doctor=self.prepaid_doc,
+            investment=inv_comp,
+            medicine=self.medicine,
+            quantity=20,
+            entry_date=date.today() - timedelta(days=50)
+        )
+        inv_comp.refresh_from_db()
+        self.assertEqual(inv_comp.status, Investment.STATUS_COMPLETED)
+
+        # Active investment with over-recovery (3000 achieved on 2000 target = 150%)
+        inv_active = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=10),
+            status=Investment.STATUS_IN_PROGRESS
+        )
+        SalesEntry.objects.create(
+            rep=self.rep,
+            doctor=self.prepaid_doc,
+            investment=inv_active,
+            medicine=self.medicine,
+            quantity=30,
+            entry_date=date.today()
+        )
+        # Bypassing the save logic to force this active investment to remain in_progress for testing >100% recovery rate
+        Investment.objects.filter(pk=inv_active.pk).update(status=Investment.STATUS_IN_PROGRESS)
+
+        metrics = get_prepaid_admin_metrics()
+        self.assertAlmostEqual(metrics["recovery_rate"], Decimal("150.00"))
+
+    def test_settlement_integrity_alert(self):
+        """
+        Verify that a settled campaign with a computed outstanding balance > 0
+        triggers a danger-type alert in the dashboard.
+        """
+        # Clear existing campaigns to avoid alert pollution
+        PostpaidCampaign.objects.all().delete()
+
+        camp = PostpaidCampaign.objects.create(
+            doctor=self.postpaid_doc,
+            month=6,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_SETTLED,
+            total_sales_value=Decimal("10000.00"),
+            total_commission=Decimal("1000.00"),
+            paid_amount=Decimal("800.00")  # Outstanding = 200 > 0
+        )
+
+        alerts = get_dashboard_alerts()
+        integrity_alerts = [a for a in alerts if a["type"] == "danger" and "Settlement Integrity Anomaly" in a["message"]]
+        self.assertEqual(len(integrity_alerts), 1)
+        self.assertIn("Dr. Postpaid Dashboard", integrity_alerts[0]["message"])
+        self.assertIn("₹200.00", integrity_alerts[0]["message"])
+
+    def test_completed_investments_rolling_30_days(self):
+        """
+        Verify completed investments count correctly filters based on a rolling 30-day window.
+        """
+        # Clean existing investments
+        Investment.objects.all().delete()
+
+        # Completed within 30 days
+        inv1 = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=20),
+            status=Investment.STATUS_COMPLETED
+        )
+        Investment.objects.filter(pk=inv1.pk).update(updated_at=timezone.now() - timedelta(days=10))
+
+        # Completed more than 30 days ago
+        inv2 = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=50),
+            status=Investment.STATUS_COMPLETED
+        )
+        Investment.objects.filter(pk=inv2.pk).update(updated_at=timezone.now() - timedelta(days=40))
+
+        # Active investment (not completed)
+        inv3 = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=5),
+            status=Investment.STATUS_IN_PROGRESS
+        )
+        Investment.objects.filter(pk=inv3.pk).update(updated_at=timezone.now() - timedelta(days=2))
+
+        metrics = get_prepaid_admin_metrics()
+        self.assertEqual(metrics["completed_last_30d"], 1)
+
+    def test_activity_feed_merge_and_ordering(self):
+        """
+        Verify that the activity feed correctly interleaves prepaid and postpaid sales
+        in descending chronological order (entry_date, created_at).
+        """
+        # Clean existing entries
+        SalesEntry.objects.all().delete()
+        PostpaidSaleEntry.objects.all().delete()
+        PostpaidCampaign.objects.all().delete()
+
+        inv = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=10),
+            status=Investment.STATUS_IN_PROGRESS
+        )
+        camp = PostpaidCampaign.objects.create(
+            doctor=self.postpaid_doc,
+            month=6,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_OPEN
+        )
+
+        # 1. Old prepaid entry (2 days ago)
+        se1 = SalesEntry.objects.create(
+            rep=self.rep,
+            doctor=self.prepaid_doc,
+            investment=inv,
+            medicine=self.medicine,
+            quantity=10,
+            entry_date=date.today() - timedelta(days=2)
+        )
+        SalesEntry.objects.filter(pk=se1.pk).update(created_at=timezone.now() - timedelta(days=2))
+
+        # 2. Mid postpaid entry (1 day ago)
+        pse1 = PostpaidSaleEntry.objects.create(
+            campaign=camp,
+            medicine=self.medicine,
+            quantity=5,
+            entry_date=date.today() - timedelta(days=1),
+            rep=self.rep
+        )
+        PostpaidSaleEntry.objects.filter(pk=pse1.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        # 3. New prepaid entry (today)
+        se2 = SalesEntry.objects.create(
+            rep=self.rep,
+            doctor=self.prepaid_doc,
+            investment=inv,
+            medicine=self.medicine,
+            quantity=10,
+            entry_date=date.today()
+        )
+        SalesEntry.objects.filter(pk=se2.pk).update(created_at=timezone.now())
+
+        feed = get_unified_activity_feed()
+
+        # Should return newest first
+        self.assertEqual(len(feed), 3)
+        self.assertEqual(feed[0]["type"], "prepaid")
+        self.assertEqual(feed[0]["obj"].pk, se2.pk)
+
+        self.assertEqual(feed[1]["type"], "postpaid")
+        self.assertEqual(feed[1]["obj"].pk, pse1.pk)
+
+        self.assertEqual(feed[2]["type"], "prepaid")
+        self.assertEqual(feed[2]["obj"].pk, se1.pk)
+
+    def test_activity_feed_limit_enforcement(self):
+        """
+        Verify that creating 15 prepaid and 15 postpaid entries results in a feed
+        limited to exactly 10 rows.
+        """
+        # Clean existing entries
+        SalesEntry.objects.all().delete()
+        PostpaidSaleEntry.objects.all().delete()
+        PostpaidCampaign.objects.all().delete()
+
+        inv = Investment.objects.create(
+            doctor=self.prepaid_doc,
+            amount=Decimal("1000.00"),
+            roi_ratio=Decimal("2.00"),
+            start_date=date.today() - timedelta(days=10),
+            status=Investment.STATUS_IN_PROGRESS
+        )
+        camp = PostpaidCampaign.objects.create(
+            doctor=self.postpaid_doc,
+            month=6,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_OPEN
+        )
+
+        for i in range(15):
+            SalesEntry.objects.create(
+                rep=self.rep,
+                doctor=self.prepaid_doc,
+                investment=inv,
+                medicine=self.medicine,
+                quantity=1,
+                entry_date=date.today() - timedelta(days=i)
+            )
+            PostpaidSaleEntry.objects.create(
+                campaign=camp,
+                medicine=self.medicine,
+                quantity=1,
+                entry_date=date.today() - timedelta(days=i),
+                rep=self.rep
+            )
+
+        feed = get_unified_activity_feed()
+        self.assertEqual(len(feed), 10)

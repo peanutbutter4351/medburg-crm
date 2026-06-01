@@ -51,6 +51,20 @@
         </div>
         <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
     </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Recovery Rate</div>
+            <div class="kpi-value">{{ prepaid_metrics.recovery_rate|floatformat:1 }}%</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-percent"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Completed (30d)</div>
+            <div class="kpi-value">{{ prepaid_metrics.completed_last_30d }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-check2-circle"></i></div>
+    </div>
 </div>
 
 <!-- ─── Filter Bar ─────────────────────────────── -->
@@ -234,8 +248,8 @@
     </div>
     <div class="kpi-card">
         <div class="kpi-info">
-            <div class="kpi-label">Total Postpaid Sales</div>
-            <div class="kpi-value">₹{{ postpaid_summary.total_sales|floatformat:0 }}</div>
+            <div class="kpi-label">Monthly Postpaid Sales</div>
+            <div class="kpi-value">₹{{ postpaid_summary.monthly_sales|floatformat:0 }}</div>
         </div>
         <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
     </div>
@@ -252,6 +266,159 @@
             <div class="kpi-value">₹{{ postpaid_summary.total_outstanding|floatformat:0 }}</div>
         </div>
         <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
+    </div>
+</div>
+
+<!-- ─── Postpaid Campaign Grid ──────────────────────── -->
+<div class="data-card mb-5">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-calendar-event"></i> Active Postpaid Campaigns
+            <span class="count-badge">{{ active_campaigns|length }}</span>
+        </h5>
+    </div>
+    <div class="data-card-body">
+        <div class="table-responsive">
+            <table class="crm-table">
+                <thead>
+                    <tr>
+                        <th>Doctor</th>
+                        <th>Period</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-right">Commission %</th>
+                        <th class="text-right">Sales (₹)</th>
+                        <th class="text-right">Outstanding (₹)</th>
+                        <th class="text-center">Manage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for camp in active_campaigns %}
+                    <tr>
+                        <td>
+                            <strong>{{ camp.doctor.name }}</strong>
+                            {% if camp.doctor.hospital %}
+                            <br><small class="text-crm-muted">{{ camp.doctor.hospital }}</small>
+                            {% endif %}
+                        </td>
+                        <td>{{ camp.month|stringformat:"02d" }}/{{ camp.year }}</td>
+                        <td class="text-center">
+                            {% if camp.status == 'awaiting_commission' %}
+                                <span class="crm-badge pending">Awaiting Commission</span>
+                            {% elif camp.status == 'open' %}
+                                <span class="crm-badge in-progress">Open</span>
+                            {% elif camp.status == 'partial' %}
+                                {% if camp.paid_amount >= camp.total_commission %}
+                                    <span class="crm-badge completed">Ready To Settle</span>
+                                {% else %}
+                                    <span class="crm-badge in-progress" style="background: rgba(59, 130, 246, 0.15); color: #1d4ed8;">Partial</span>
+                                {% endif %}
+                            {% elif camp.status == 'settled' %}
+                                <span class="crm-badge completed">Settled</span>
+                            {% elif camp.status == 'locked' %}
+                                <span class="crm-badge no-investment" style="background: rgba(15, 23, 42, 0.1); color: #0f172a;"><i class="bi bi-lock-fill"></i> Locked</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right">
+                            {% if camp.commission_percentage is not None %}
+                                {{ camp.commission_percentage|floatformat:1 }}%
+                            {% else %}
+                                <span class="text-crm-muted">Not Set</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right value-cell">
+                            ₹{{ camp.total_sales_value|floatformat:0 }}
+                        </td>
+                        <td class="text-right {% if camp.outstanding_balance > 0 %}text-negative{% else %}text-positive{% endif %}">
+                            ₹{{ camp.outstanding_balance|floatformat:0 }}
+                        </td>
+                        <td class="text-center">
+                            <a href="{% url 'sales:campaign_manage' camp.id %}" class="btn btn-sm btn-crm-outline py-0" style="font-size: 0.8rem;">
+                                <i class="bi bi-gear"></i> Manage
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted" style="padding: 40px;">
+                            No active postpaid campaigns.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ─── Unified Company Activity Feed ────────────────── -->
+<div class="data-card mb-5">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-activity"></i> Unified Activity Feed
+        </h5>
+    </div>
+    <div class="data-card-body">
+        <div class="table-responsive">
+            <table class="crm-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th class="text-center">Type</th>
+                        <th>Doctor</th>
+                        <th>Medicine</th>
+                        <th class="text-right">Qty</th>
+                        <th class="text-right">Value (₹)</th>
+                        <th>Rep</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in unified_feed %}
+                    <tr>
+                        <td class="text-crm-muted">{{ item.obj.entry_date|date:"Y-m-d" }}</td>
+                        <td class="text-center">
+                            {% if item.type == 'prepaid' %}
+                            <span class="crm-badge prepaid">Prepaid</span>
+                            {% else %}
+                            <span class="crm-badge postpaid">Postpaid</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.type == 'prepaid' %}
+                                <strong>{{ item.obj.doctor.name }}</strong>
+                                {% if item.obj.doctor.hospital %}
+                                <br><small class="text-crm-muted">{{ item.obj.doctor.hospital }}</small>
+                                {% endif %}
+                            {% else %}
+                                <strong>{{ item.obj.campaign.doctor.name }}</strong>
+                                {% if item.obj.campaign.doctor.hospital %}
+                                <br><small class="text-crm-muted">{{ item.obj.campaign.doctor.hospital }}</small>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>{{ item.obj.medicine.name }}</td>
+                        <td class="text-right">{{ item.obj.quantity }}</td>
+                        <td class="text-right value-cell">₹{{ item.obj.value_at_sale|floatformat:0 }}</td>
+                        <td>{{ item.obj.rep.get_full_name|default:item.obj.rep.username }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted" style="padding: 30px;">
+                            No recent sales activity.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ─── Visualizations Container (MR-4I Placeholder) ─── -->
+<div class="card mb-4" style="border: 1px dashed var(--border-color); border-radius: var(--radius-md); background: rgba(0,0,0,0.02);">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-bar-chart-line" style="font-size: 2.5rem; color: var(--text-muted); opacity: 0.5;"></i>
+        <h5 class="mt-3" style="font-weight: 600;">Analytics & KPI Visualizations</h5>
+        <p class="mb-0 small">Interactive trend charts, ROI distributions, and performance graphs will be enabled in MR-4I.</p>
     </div>
 </div>
 

@@ -32,7 +32,7 @@ from decimal import Decimal
 from django.db.models import (
     Sum, F, Value, Case, When, CharField,
     DecimalField, IntegerField, Q,
-    OuterRef, Subquery,
+    OuterRef, Subquery, ExpressionWrapper,
 )
 from django.db.models.functions import Coalesce, Least
 
@@ -229,24 +229,29 @@ def get_postpaid_dashboard_summary():
     """
     Aggregate postpaid metrics, excluding locked campaigns from active exposure.
     """
-    from sales.models import PostpaidCampaign
+    from sales.models import PostpaidCampaign, PostpaidSaleEntry
+    from datetime import date
     
     qs = PostpaidCampaign.objects.exclude(status=PostpaidCampaign.STATUS_LOCKED)
     
     agg = qs.aggregate(
-        sales=Coalesce(Sum("total_sales_value"), Value(Decimal("0")), output_field=DecimalField()),
         comm=Coalesce(Sum("total_commission"), Value(Decimal("0")), output_field=DecimalField()),
         paid=Coalesce(Sum("paid_amount"), Value(Decimal("0")), output_field=DecimalField()),
     )
     
-    sales = agg["sales"]
+    today = date.today()
+    monthly_sales = PostpaidSaleEntry.objects.filter(
+        entry_date__month=today.month,
+        entry_date__year=today.year
+    ).aggregate(t=Sum("value_at_sale"))["t"] or Decimal("0.00")
+    
     comm = agg["comm"]
     paid = agg["paid"]
     outstanding = comm - paid
     
     return {
         "active_campaigns_count": qs.count(),
-        "total_sales": sales,
+        "monthly_sales": monthly_sales,
         "total_commission": comm,
         "total_paid": paid,
         "total_outstanding": outstanding,
@@ -256,16 +261,42 @@ def get_postpaid_dashboard_summary():
 def get_dashboard_alerts():
     """
     Return a list of alerts: awaiting commission older than 3 days (yellow) and 7 days (red),
-    plus prepaid investment overruns.
+    plus prepaid investment overruns, and settlement integrity anomalies.
     """
     from sales.models import PostpaidCampaign
     from django.utils import timezone
+    from decimal import Decimal
     
     alerts = []
     now = timezone.now()
     
-    # 1. Awaiting Commission alerts
-    awaiting = PostpaidCampaign.objects.filter(status=PostpaidCampaign.STATUS_AWAITING_COMMISSION)
+    # 1. Settlement Integrity Alert (Critical — Red)
+    # Use DB-level annotation with ExpressionWrapper to avoid full Python-side table scan.
+    # Do not iterate over all settled campaigns and check the @property in Python.
+    settled_anomalies = PostpaidCampaign.objects.filter(
+        status=PostpaidCampaign.STATUS_SETTLED
+    ).annotate(
+        computed_outstanding=ExpressionWrapper(
+            F("total_commission") - F("paid_amount"),
+            output_field=DecimalField()
+        )
+    ).filter(computed_outstanding__gt=Decimal("0")).select_related("doctor")
+
+    for camp in settled_anomalies:
+        alerts.append({
+            "type": "danger",
+            "message": (
+                f"🚨 Settlement Integrity Anomaly: Campaign for Dr. {camp.doctor.name} "
+                f"({camp.month:02d}/{camp.year}) is Settled but has an unpaid outstanding "
+                f"balance of ₹{camp.computed_outstanding:,.2f}. Verify justification notes."
+            )
+        })
+    
+    # 2. Awaiting Commission alerts
+    # Age is measured using campaign.created_at because MR-4F is a non-schema phase and no awaiting_since field exists.
+    # This proxy is only reliable for campaigns that have remained in STATUS_AWAITING_COMMISSION since creation.
+    # FUTURE ENHANCEMENT: A dedicated awaiting_since = DateTimeField(null=True) field should be added in a future schema phase to track status transitions accurately.
+    awaiting = PostpaidCampaign.objects.filter(status=PostpaidCampaign.STATUS_AWAITING_COMMISSION).select_related("doctor")
     for camp in awaiting:
         age_days = (now - camp.created_at).days
         if age_days >= 7:
@@ -279,7 +310,7 @@ def get_dashboard_alerts():
                 "message": f"⚠️ WARNING: Campaign for Dr. {camp.doctor.name} ({camp.month:02d}/{camp.year}) has been Awaiting Commission for {age_days} days."
             })
             
-    # 2. Prepaid Overrun alerts (balance < 0)
+    # 3. Prepaid Overrun alerts (balance < 0)
     from doctors.models import Investment
     overruns = Investment.objects.filter(status=Investment.STATUS_IN_PROGRESS).select_related("doctor")
     for inv in overruns:
@@ -288,6 +319,8 @@ def get_dashboard_alerts():
                 "type": "info",
                 "message": f"📈 Prepaid Overrun: Investment for Dr. {inv.doctor.name} has exceeded ROI target by ₹{abs(inv.balance):,.2f}."
             })
+            
+    # FUTURE ENHANCEMENT (MR-4I or later): Add stalled payout alert for STATUS_PARTIAL campaigns with no payment > N days.
             
     return alerts
 
@@ -369,3 +402,80 @@ def get_rep_dashboard_data(rep_user):
             "recent_sales": recent_postpaid_sales,
         }
     }
+
+
+def get_prepaid_admin_metrics():
+    """
+    Compute recovery rate and completed investments count for the admin dashboard.
+    """
+    from django.db.models import ExpressionWrapper, DecimalField
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    active_invs = Investment.objects.filter(status=Investment.STATUS_IN_PROGRESS)
+
+    total_active_target = active_invs.aggregate(
+        t=Sum(
+            ExpressionWrapper(F("amount") * F("roi_ratio"), output_field=DecimalField())
+        )
+    )["t"] or Decimal("0.00")
+
+    total_active_achieved = SalesEntry.objects.filter(
+        investment__status=Investment.STATUS_IN_PROGRESS
+    ).aggregate(t=Sum("value_at_sale"))["t"] or Decimal("0.00")
+
+    recovery_rate = (
+        (total_active_achieved / total_active_target * 100)
+        if total_active_target > 0
+        else Decimal("0.00")
+    )
+    
+    thirty_days_ago = timezone.now().date() - timedelta(days=30)
+    completed_count = Investment.objects.filter(
+        status=Investment.STATUS_COMPLETED,
+        updated_at__date__gte=thirty_days_ago
+    ).count()
+    
+    return {
+        "recovery_rate": recovery_rate,
+        "completed_last_30d": completed_count,
+    }
+
+
+def get_unified_activity_feed():
+    """
+    Chronological activity feed merging prepaid SalesEntry and postpaid PostpaidSaleEntry.
+    """
+    from sales.models import PostpaidSaleEntry
+    from itertools import chain
+
+    recent_prepaid = (
+        SalesEntry.objects
+        .select_related("doctor", "medicine", "rep")
+        .order_by("-entry_date", "-created_at")[:20]
+    )
+    recent_postpaid = (
+        PostpaidSaleEntry.objects
+        .select_related("campaign__doctor", "medicine", "rep")
+        .order_by("-entry_date", "-created_at")[:20]
+    )
+
+    unified_feed = sorted(
+        chain(
+            [{"type": "prepaid", "obj": s} for s in recent_prepaid],
+            [{"type": "postpaid", "obj": s} for s in recent_postpaid],
+        ),
+        key=lambda x: (x["obj"].entry_date, x["obj"].created_at),
+        reverse=True,
+    )[:10]
+    return unified_feed
+
+
+def get_active_postpaid_campaigns():
+    """
+    Return active postpaid campaigns, excluding Locked status.
+    """
+    from sales.models import PostpaidCampaign
+    return PostpaidCampaign.objects.exclude(
+        status=PostpaidCampaign.STATUS_LOCKED
+    ).select_related("doctor").order_by("-year", "-month", "doctor__name")

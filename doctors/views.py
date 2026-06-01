@@ -13,6 +13,9 @@ from .services.doctor_service import (
     get_postpaid_dashboard_summary,
     get_dashboard_alerts,
     get_rep_dashboard_data,
+    get_prepaid_admin_metrics,
+    get_unified_activity_feed,
+    get_active_postpaid_campaigns,
 )
 
 
@@ -47,12 +50,20 @@ def doctor_dashboard(request):
         # ── Fetch Postpaid summary and Alerts ────────────────────
         postpaid_summary = get_postpaid_dashboard_summary()
         alerts = get_dashboard_alerts()
+        
+        # New MR-4F metrics and feeds
+        prepaid_metrics = get_prepaid_admin_metrics()
+        unified_feed = get_unified_activity_feed()
+        active_campaigns = get_active_postpaid_campaigns()
 
         context = {
             "doctors": doctors,
             "summary": summary,
             "filters": filters,
             "postpaid_summary": postpaid_summary,
+            "prepaid_metrics": prepaid_metrics,
+            "unified_feed": unified_feed,
+            "active_campaigns": active_campaigns,
             "alerts": alerts,
             # Pass current filter values back to template for sticky selects
             "current_rep": rep_id,
