@@ -181,14 +181,19 @@ class PostpaidLifecycleTests(TestCase):
         campaign.refresh_from_db()
         self.assertEqual(campaign.status, PostpaidCampaign.STATUS_PARTIAL)  # 100 < 150
 
-        # Create second payment to exceed balance (should auto-settle campaign)
+        # Create second payment to meet balance (should NOT auto-settle campaign)
         payment2 = CampaignPayment.objects.create(
             campaign=campaign,
             amount=Decimal("50.00"),
             payment_date=date.today()
         )
         campaign.refresh_from_db()
-        self.assertEqual(campaign.status, PostpaidCampaign.STATUS_SETTLED)
+        # Verify that it does NOT auto-settle anymore
+        self.assertEqual(campaign.status, PostpaidCampaign.STATUS_PARTIAL)
+
+        # Manually settle the campaign (allowed since outstanding balance is 0.00)
+        campaign.status = PostpaidCampaign.STATUS_SETTLED
+        campaign.save()
 
         # Record a payment when campaign is Settled (should raise ValidationError)
         payment3 = CampaignPayment(campaign=campaign, amount=Decimal("10.00"), payment_date=date.today())
@@ -470,7 +475,9 @@ class DashboardStabilizationTests(TestCase):
             status=PostpaidCampaign.STATUS_SETTLED,
             total_sales_value=Decimal("10000.00"),
             total_commission=Decimal("1000.00"),
-            paid_amount=Decimal("800.00")  # Outstanding = 200 > 0
+            paid_amount=Decimal("800.00"),  # Outstanding = 200 > 0
+            settlement_reason=PostpaidCampaign.REASON_WRITE_OFF,
+            settlement_notes="Approved write-off for deviation."
         )
 
         alerts = get_dashboard_alerts()
@@ -633,3 +640,170 @@ class DashboardStabilizationTests(TestCase):
 
         feed = get_unified_activity_feed()
         self.assertEqual(len(feed), 10)
+
+
+class SettlementFoundationTests(TestCase):
+    def setUp(self):
+        self.rep = User.objects.create_user(username="rep_user_mr4g", password="pwd", role="rep")
+        self.admin = User.objects.create_user(username="admin_user_mr4g", password="pwd", role="admin")
+        self.doctor = Doctor.objects.create(
+            name="Dr. MR4G",
+            mode="postpaid",
+            assigned_rep=self.rep,
+            is_active=True
+        )
+        self.medicine = Medicine.objects.create(
+            name="Med MR4G",
+            pts=Decimal("100.00"),
+            ptr=Decimal("80.00"),
+            mrp=Decimal("120.00"),
+            is_active=True
+        )
+        DoctorMedicine.objects.create(doctor=self.doctor, medicine=self.medicine)
+
+    def test_campaign_deletion_blocks(self):
+        """
+        Deleting a Settled or Locked campaign raises ValidationError. Deleting Open/Awaiting is allowed.
+        """
+        # 1. Awaiting Commission (Allowed)
+        campaign_awaiting = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=1, year=2026, status=PostpaidCampaign.STATUS_AWAITING_COMMISSION
+        )
+        campaign_awaiting.delete()  # Should not raise error
+
+        # 2. Open (Allowed)
+        campaign_open = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=2, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        campaign_open.delete()  # Should not raise error
+
+        # 3. Partial (Blocked)
+        campaign_partial = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=3, year=2026, status=PostpaidCampaign.STATUS_PARTIAL, commission_percentage=Decimal("10.00")
+        )
+        with self.assertRaises(ValidationError):
+            campaign_partial.delete()
+
+        # 4. Settled (Blocked)
+        campaign_settled = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=4, year=2026, status=PostpaidCampaign.STATUS_SETTLED, commission_percentage=Decimal("10.00"),
+            settlement_reason=PostpaidCampaign.REASON_WRITE_OFF, settlement_notes="Settle it"
+        )
+        with self.assertRaises(ValidationError):
+            campaign_settled.delete()
+
+        # 5. Locked (Blocked)
+        campaign_locked = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=5, year=2026, status=PostpaidCampaign.STATUS_LOCKED, commission_percentage=Decimal("10.00")
+        )
+        with self.assertRaises(ValidationError):
+            campaign_locked.delete()
+
+    def test_sales_entry_deletion_blocks_and_recalculation(self):
+        """
+        Deleting a sales entry on Partial/Settled/Locked campaigns raises ValidationError.
+        Deleting a sales entry on Open/Awaiting campaigns is allowed and triggers recalculation of campaign sales totals.
+        """
+        campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=1, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        sale1 = PostpaidSaleEntry.objects.create(
+            campaign=campaign, medicine=self.medicine, quantity=10, entry_date=date.today(), rep=self.rep
+        )
+        sale2 = PostpaidSaleEntry.objects.create(
+            campaign=campaign, medicine=self.medicine, quantity=5, entry_date=date.today(), rep=self.rep
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_sales_value, Decimal("1500.00"))
+        self.assertEqual(campaign.total_commission, Decimal("150.00"))
+
+        # Deletion on Open is allowed and triggers recalculation
+        sale2.delete()
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_sales_value, Decimal("1000.00"))
+        self.assertEqual(campaign.total_commission, Decimal("100.00"))
+
+        # Deletion on Partial is blocked
+        campaign.status = PostpaidCampaign.STATUS_PARTIAL
+        campaign.save()
+        with self.assertRaises(ValidationError):
+            sale1.delete()
+
+    def test_settlement_checklist_validation(self):
+        """
+        Advancing a campaign with outstanding_balance > 0 to Settled status fails if settlement_reason or settlement_notes is missing, but passes if they are provided.
+        Fully paid campaigns settle without reason/notes.
+        """
+        campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=1, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        PostpaidSaleEntry.objects.create(
+            campaign=campaign, medicine=self.medicine, quantity=10, entry_date=date.today(), rep=self.rep
+        )
+        campaign.status = PostpaidCampaign.STATUS_PARTIAL
+        campaign.save()
+        campaign.refresh_status()
+        self.assertEqual(campaign.outstanding_balance, Decimal("100.00"))
+
+        # 1. Try to settle without reason/notes -> should fail
+        campaign.status = PostpaidCampaign.STATUS_SETTLED
+        with self.assertRaises(ValidationError) as ctx:
+            campaign.full_clean()
+        self.assertIn("settlement_reason", ctx.exception.message_dict)
+
+        # 2. Try with only reason -> should fail
+        campaign.settlement_reason = PostpaidCampaign.REASON_WRITE_OFF
+        with self.assertRaises(ValidationError) as ctx:
+            campaign.full_clean()
+        self.assertIn("settlement_notes", ctx.exception.message_dict)
+
+        # 3. Try with reason and notes -> should pass
+        campaign.settlement_notes = "Approved write-off for deviation."
+        campaign.full_clean()  # Should not raise error
+        campaign.save()
+
+        # 4. Try settling fully paid campaign without reason/notes -> should pass
+        campaign2 = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=2, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        PostpaidSaleEntry.objects.create(
+            campaign=campaign2, medicine=self.medicine, quantity=10, entry_date=date.today(), rep=self.rep
+        )
+        campaign2.status = PostpaidCampaign.STATUS_PARTIAL
+        campaign2.save()
+        campaign2.refresh_status()
+        # Record payment matching total commission (100.00)
+        CampaignPayment.objects.create(campaign=campaign2, amount=Decimal("100.00"), payment_date=date.today())
+        campaign2.refresh_from_db()
+        self.assertEqual(campaign2.outstanding_balance, Decimal("0.00"))
+
+        campaign2.status = PostpaidCampaign.STATUS_SETTLED
+        campaign2.full_clean()  # Should not raise error since balance is 0.00
+        campaign2.save()
+
+    def test_transaction_integrity(self):
+        """
+        Ensure database errors roll back modifications successfully.
+        """
+        from django.db import transaction
+        
+        campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor, month=1, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        
+        try:
+            with transaction.atomic():
+                PostpaidSaleEntry.objects.create(
+                    campaign=campaign, medicine=self.medicine, quantity=10, entry_date=date.today(), rep=self.rep
+                )
+                # Force an ValidationError by violating unique constraint on campaign (doctor+month+year)
+                PostpaidCampaign.objects.create(
+                    doctor=self.doctor, month=1, year=2026
+                )
+        except ValidationError:
+            pass
+
+        # Verify that the PostpaidSaleEntry was rolled back and campaign totals are 0
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.sales_entries.count(), 0)
+        self.assertEqual(campaign.total_sales_value, Decimal("0.00"))

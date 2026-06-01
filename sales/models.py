@@ -616,6 +616,42 @@ class PostpaidCampaign(BaseModel):
     locked_at = models.DateTimeField(null=True, blank=True)
     settled_at = models.DateTimeField(null=True, blank=True)
 
+    REASON_WRITE_OFF = "WRITE_OFF"
+    REASON_DISPUTE = "DISPUTE"
+    REASON_PROMOTIONAL_SUPPORT = "PROMOTIONAL_SUPPORT"
+    REASON_MANAGEMENT_APPROVAL = "MANAGEMENT_APPROVAL"
+    REASON_DATA_CORRECTION = "DATA_CORRECTION"
+    REASON_OTHER = "OTHER"
+
+    SETTLEMENT_REASON_CHOICES = [
+        (REASON_WRITE_OFF, "Write-off (Approved deviation)"),
+        (REASON_DISPUTE, "Resolved Dispute"),
+        (REASON_PROMOTIONAL_SUPPORT, "Promotional Support"),
+        (REASON_MANAGEMENT_APPROVAL, "Management Approval"),
+        (REASON_DATA_CORRECTION, "Data Correction"),
+        (REASON_OTHER, "Other (Reason in Notes)"),
+    ]
+
+    settled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="settled_campaigns"
+    )
+    settlement_reason = models.CharField(
+        max_length=50,
+        choices=SETTLEMENT_REASON_CHOICES,
+        null=True,
+        blank=True
+    )
+    settlement_notes = models.TextField(null=True, blank=True)
+    settlement_attachment = models.FileField(
+        upload_to="settlements/",
+        null=True,
+        blank=True
+    )
+
     class Meta(BaseModel.Meta):
         verbose_name = "Postpaid Campaign"
         verbose_name_plural = "Postpaid Campaigns"
@@ -647,6 +683,14 @@ class PostpaidCampaign(BaseModel):
             except PostpaidCampaign.DoesNotExist:
                 pass
 
+        # Manual settlement checklist validation
+        if self.status == self.STATUS_SETTLED:
+            if self.outstanding_balance > Decimal("0.00"):
+                if not self.settlement_reason:
+                    raise ValidationError({"settlement_reason": "Settlement reason is required when outstanding balance is greater than zero."})
+                if not self.settlement_notes or not self.settlement_notes.strip():
+                    raise ValidationError({"settlement_notes": "Settlement notes are required when outstanding balance is greater than zero."})
+
     def save(self, *args, **kwargs):
         # Auto-transition status from awaiting_commission to open if commission is set
         if self.status == self.STATUS_AWAITING_COMMISSION and self.commission_percentage is not None:
@@ -654,6 +698,11 @@ class PostpaidCampaign(BaseModel):
             
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status in (self.STATUS_PARTIAL, self.STATUS_SETTLED, self.STATUS_LOCKED):
+            raise ValidationError("Cannot delete a campaign that is partial, settled, or locked.")
+        super().delete(*args, **kwargs)
 
     def calculate_totals(self):
         """
@@ -698,10 +747,8 @@ class PostpaidCampaign(BaseModel):
             # Open stays open until manually advanced to Partial
             pass
         elif self.status == self.STATUS_PARTIAL:
-            if self.paid_amount >= self.total_commission and self.total_commission > Decimal('0'):
-                new_status = self.STATUS_SETTLED
-                if not self.settled_at:
-                    self.settled_at = timezone.now()
+            # Auto-settlement removed. Must remain Partial until manually settled.
+            pass
 
         if self.status != new_status:
             self.status = new_status
@@ -800,6 +847,15 @@ class PostpaidSaleEntry(BaseModel):
         if self.campaign_id:
             self.campaign.calculate_totals()
             self.campaign.save(update_fields=['total_sales_value', 'total_commission', 'updated_at'])
+
+    def delete(self, *args, **kwargs):
+        if self.campaign.status in (PostpaidCampaign.STATUS_PARTIAL, PostpaidCampaign.STATUS_SETTLED, PostpaidCampaign.STATUS_LOCKED):
+            raise ValidationError("Cannot delete sales entries on a campaign that is partial, settled, or locked.")
+        campaign = self.campaign
+        super().delete(*args, **kwargs)
+        if campaign:
+            campaign.calculate_totals()
+            campaign.save(update_fields=['total_sales_value', 'total_commission', 'updated_at'])
 
 
 class CampaignPayment(BaseModel):

@@ -476,6 +476,21 @@ class PostpaidSaleEntryAdmin(admin.ModelAdmin):
     def get_value(self, obj):
         return _fmt_currency(obj.value_at_sale)
 
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.campaign.status in (
+            PostpaidCampaign.STATUS_PARTIAL,
+            PostpaidCampaign.STATUS_SETTLED,
+            PostpaidCampaign.STATUS_LOCKED,
+        ):
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 @admin.register(CampaignPayment)
 class CampaignPaymentAdmin(admin.ModelAdmin):
@@ -499,4 +514,10 @@ class CampaignPaymentAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
 

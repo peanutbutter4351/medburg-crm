@@ -204,16 +204,18 @@ def update_commission_view(request, campaign_id):
     Endpoint for updating campaign commission percentage.
     Only allowed in awaiting_commission or open status.
     """
-    campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
-    form = CampaignCommissionForm(request.POST, instance=campaign)
-    if form.is_valid():
-        try:
-            campaign.update_commission_percentage(form.cleaned_data["commission_percentage"])
-            messages.success(request, f"✅ Commission updated successfully to {campaign.commission_percentage}%.")
-        except ValidationError as e:
-            messages.error(request, f"❌ Failed to update commission: {e.message if hasattr(e, 'message') else str(e)}")
-    else:
-        messages.error(request, "❌ Invalid commission value entered.")
+    from django.db import transaction
+    with transaction.atomic():
+        campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
+        form = CampaignCommissionForm(request.POST, instance=campaign)
+        if form.is_valid():
+            try:
+                campaign.update_commission_percentage(form.cleaned_data["commission_percentage"])
+                messages.success(request, f"✅ Commission updated successfully to {campaign.commission_percentage}%.")
+            except ValidationError as e:
+                messages.error(request, f"❌ Failed to update commission: {e.message if hasattr(e, 'message') else str(e)}")
+        else:
+            messages.error(request, "❌ Invalid commission value entered.")
 
     return redirect("sales:campaign_manage", campaign_id=campaign.id)
 
@@ -225,21 +227,23 @@ def record_payment_view(request, campaign_id):
     Endpoint for recording a ledger payment against a campaign.
     Only allowed in open or partial status.
     """
-    campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
-    form = CampaignPaymentForm(request.POST)
-    if form.is_valid():
-        try:
-            payment = form.save(commit=False)
-            payment.campaign = campaign
-            # Validation inside clean() checks status and blocks negative payments
-            payment.clean()
-            payment.save()
-            messages.success(request, f"✅ Payment of ₹{payment.amount:,.2f} recorded successfully.")
-        except ValidationError as e:
-            error_msg = "; ".join(msg for msg_list in e.message_dict.values() for msg in msg_list) if hasattr(e, "message_dict") else str(e)
-            messages.error(request, f"❌ Payment failed: {error_msg}")
-    else:
-        messages.error(request, "❌ Invalid payment fields entered.")
+    from django.db import transaction
+    with transaction.atomic():
+        campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
+        form = CampaignPaymentForm(request.POST)
+        if form.is_valid():
+            try:
+                payment = form.save(commit=False)
+                payment.campaign = campaign
+                # Validation inside clean() checks status and blocks negative payments
+                payment.clean()
+                payment.save()
+                messages.success(request, f"✅ Payment of ₹{payment.amount:,.2f} recorded successfully.")
+            except ValidationError as e:
+                error_msg = "; ".join(msg for msg_list in e.message_dict.values() for msg in msg_list) if hasattr(e, "message_dict") else str(e)
+                messages.error(request, f"❌ Payment failed: {error_msg}")
+        else:
+            messages.error(request, "❌ Invalid payment fields entered.")
 
     return redirect("sales:campaign_manage", campaign_id=campaign.id)
 
@@ -254,36 +258,48 @@ def advance_campaign_status_view(request, campaign_id):
     - Partial -> Settled
     - Settled -> Locked
     """
-    campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
-    target_status = request.POST.get("status")
+    from django.db import transaction
+    with transaction.atomic():
+        campaign = get_object_or_404(PostpaidCampaign, pk=campaign_id)
+        target_status = request.POST.get("status")
 
-    if target_status == PostpaidCampaign.STATUS_PARTIAL:
-        if campaign.status == PostpaidCampaign.STATUS_OPEN:
-            campaign.status = PostpaidCampaign.STATUS_PARTIAL
-            campaign.save(update_fields=["status", "updated_at"])
-            messages.success(request, "Campaign advanced to Partial status. Payments are now open.")
+        if target_status == PostpaidCampaign.STATUS_PARTIAL:
+            if campaign.status == PostpaidCampaign.STATUS_OPEN:
+                campaign.status = PostpaidCampaign.STATUS_PARTIAL
+                campaign.save(update_fields=["status", "updated_at"])
+                messages.success(request, "Campaign advanced to Partial status. Payments are now open.")
+            else:
+                messages.error(request, "❌ Campaign must be in Open status to transition to Partial.")
+                
+        elif target_status == PostpaidCampaign.STATUS_SETTLED:
+            if campaign.status == PostpaidCampaign.STATUS_PARTIAL:
+                campaign.status = PostpaidCampaign.STATUS_SETTLED
+                campaign.settled_at = timezone.now()
+                campaign.settled_by = request.user
+                campaign.settlement_reason = request.POST.get("settlement_reason")
+                campaign.settlement_notes = request.POST.get("settlement_notes", "").strip()
+                if "settlement_attachment" in request.FILES:
+                    campaign.settlement_attachment = request.FILES["settlement_attachment"]
+                try:
+                    campaign.full_clean()
+                    campaign.save()
+                    messages.success(request, "Campaign manually Settled.")
+                except ValidationError as e:
+                    error_msg = "; ".join(msg for msg_list in e.message_dict.values() for msg in msg_list) if hasattr(e, "message_dict") else str(e)
+                    messages.error(request, f"❌ Failed to settle: {error_msg}")
+            else:
+                messages.error(request, "❌ Campaign must be in Partial status to settle.")
+                
+        elif target_status == PostpaidCampaign.STATUS_LOCKED:
+            if campaign.status in (PostpaidCampaign.STATUS_PARTIAL, PostpaidCampaign.STATUS_SETTLED, PostpaidCampaign.STATUS_OPEN):
+                campaign.status = PostpaidCampaign.STATUS_LOCKED
+                campaign.locked_at = timezone.now()
+                campaign.save(update_fields=["status", "locked_at", "updated_at"])
+                messages.success(request, "🔒 Campaign successfully Locked and archived.")
+            else:
+                messages.error(request, f"❌ Cannot lock campaign in status '{campaign.get_status_display()}'.")
         else:
-            messages.error(request, "❌ Campaign must be in Open status to transition to Partial.")
-            
-    elif target_status == PostpaidCampaign.STATUS_SETTLED:
-        if campaign.status == PostpaidCampaign.STATUS_PARTIAL:
-            campaign.status = PostpaidCampaign.STATUS_SETTLED
-            campaign.settled_at = timezone.now()
-            campaign.save(update_fields=["status", "settled_at", "updated_at"])
-            messages.success(request, "Campaign manually Settled.")
-        else:
-            messages.error(request, "❌ Campaign must be in Partial status to settle.")
-            
-    elif target_status == PostpaidCampaign.STATUS_LOCKED:
-        if campaign.status in (PostpaidCampaign.STATUS_PARTIAL, PostpaidCampaign.STATUS_SETTLED, PostpaidCampaign.STATUS_OPEN):
-            campaign.status = PostpaidCampaign.STATUS_LOCKED
-            campaign.locked_at = timezone.now()
-            campaign.save(update_fields=["status", "locked_at", "updated_at"])
-            messages.success(request, "🔒 Campaign successfully Locked and archived.")
-        else:
-            messages.error(request, f"❌ Cannot lock campaign in status '{campaign.get_status_display()}'.")
-    else:
-        messages.error(request, "❌ Invalid status transition requested.")
+            messages.error(request, "❌ Invalid status transition requested.")
 
     return redirect("sales:campaign_manage", campaign_id=campaign.id)
 
