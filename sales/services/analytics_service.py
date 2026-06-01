@@ -95,8 +95,16 @@ def get_admin_dashboard_analytics():
 
     # 5. Top Performing Doctors (Top 10 by total sales value)
     doctors = Doctor.objects.annotate(
-        prepaid_sales=Coalesce(Sum('sales_entries__value_at_sale', filter=Case(When(sales_entries__value_at_sale__isnull=False, then=1))), Decimal('0.00'), output_field=DecimalField()),
-        postpaid_sales=Coalesce(Sum('postpaid_campaigns__sales_entries__value_at_sale'), Decimal('0.00'), output_field=DecimalField()),
+        prepaid_sales=Coalesce(
+            Sum('sales_entries__value_at_sale'),
+            Decimal('0.00'),
+            output_field=DecimalField()
+        ),
+        postpaid_sales=Coalesce(
+            Sum('postpaid_campaigns__sales_entries__value_at_sale'),
+            Decimal('0.00'),
+            output_field=DecimalField()
+        ),
     ).annotate(
         total_sales=F('prepaid_sales') + F('postpaid_sales')
     ).order_by('-total_sales')[:10]
