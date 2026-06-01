@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Settlement Ledger — Medburg CRM{% endblock %}
+{% block page_title %}Settlement Ledger{% endblock %}
+{% block page_subtitle %}Campaign-level financial ledger — commission, payments, and settlement status{% endblock %}
+
+{% block content %}
+
+<!-- ── KPI Summary Cards ─────────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Campaigns</div>
+            <div class="kpi-value">{{ summary.total_campaigns }}</div>
+        </div>
+        <div class="kpi-icon doctors"><i class="bi bi-file-earmark-bar-graph"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Sales Value</div>
+            <div class="kpi-value">₹{{ summary.total_sales|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Commission</div>
+            <div class="kpi-value">₹{{ summary.total_commission|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-award"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Paid</div>
+            <div class="kpi-value">₹{{ summary.total_paid|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-check-circle"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Outstanding</div>
+            <div class="kpi-value">₹{{ summary.total_outstanding|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
+    </div>
+</div>
+
+<!-- ── Status Breakdown Bar ──────────────────────────── -->
+<div class="data-card" style="margin-bottom: 1rem;">
+    <div class="data-card-body" style="padding: 0.75rem 1.25rem;">
+        <div class="d-flex flex-wrap gap-3 align-items-center">
+            <span class="text-crm-muted fw-semibold" style="font-size:.8rem;">STATUS:</span>
+            <span class="crm-badge pending">Awaiting Commission: {{ summary.awaiting_count }}</span>
+            <span class="crm-badge in-progress">Open: {{ summary.open_count }}</span>
+            <span class="crm-badge in-progress" style="background:rgba(59,130,246,.15);color:#1d4ed8;">Partial: {{ summary.partial_count }}</span>
+            <span class="crm-badge completed">Settled: {{ summary.settled_count }}</span>
+            <span class="crm-badge no-investment"><i class="bi bi-lock-fill"></i> Locked: {{ summary.locked_count }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- ── Filter Bar ────────────────────────────────────── -->
+<div class="filter-card">
+    <form method="get" id="ledger-filter-form">
+        <div class="row g-3 align-items-end">
+
+            <!-- Search -->
+            <div class="col-12 col-md-2">
+                <label class="form-label" for="filter-search">Search</label>
+                <input type="text" class="form-control" id="filter-search" name="search"
+                       placeholder="Doctor, hospital…" value="{{ current_search }}">
+            </div>
+
+            <!-- Doctor -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-doctor">Doctor</label>
+                <select class="form-select" id="filter-doctor" name="doctor">
+                    <option value="">All Doctors</option>
+                    {% for doc in filter_options.doctors %}
+                    <option value="{{ doc.id }}" {% if current_doctor == doc.id %}selected{% endif %}>
+                        {{ doc.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Month -->
+            <div class="col-6 col-md-1">
+                <label class="form-label" for="filter-month">Month</label>
+                <select class="form-select" id="filter-month" name="month">
+                    <option value="">All</option>
+                    {% for num, name in filter_options.months %}
+                    <option value="{{ num }}" {% if current_month == num %}selected{% endif %}>
+                        {{ num|stringformat:"02d" }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Year -->
+            <div class="col-6 col-md-1">
+                <label class="form-label" for="filter-year">Year</label>
+                <select class="form-select" id="filter-year" name="year">
+                    <option value="">All</option>
+                    {% for y in filter_options.years %}
+                    <option value="{{ y }}" {% if current_year == y %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status -->
+            <div class="col-6 col-md-2">
+                <label class="form-label" for="filter-status">Status</label>
+                <select class="form-select" id="filter-status" name="status">
+                    <option value="">All Statuses</option>
+                    {% for val, label in filter_options.statuses %}
+                    <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-12 col-sm-6 col-md-4 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Apply
+                </button>
+                {% if has_filters %}
+                <a href="{% url 'sales:settlement_ledger' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-lg"></i> Clear
+                </a>
+                {% endif %}
+                {% if rows %}
+                <a href="{% url 'sales:export_settlement_ledger' %}?{{ request.GET.urlencode }}"
+                   class="btn-crm-secondary flex-fill" id="btn-export-ledger">
+                    <i class="bi bi-file-earmark-excel"></i> Export
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ── Ledger Table ──────────────────────────────────── -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-journal-text"></i> Settlement Ledger
+            <span class="count-badge">{{ rows|length }}</span>
+        </h5>
+    </div>
+    <div class="data-card-body">
+        {% if rows %}
+        <div class="table-responsive">
+            <table class="crm-table" id="ledger-table">
+                <thead>
+                    <tr>
+                        <th class="text-center">Sl</th>
+                        <th>Period</th>
+                        <th>Doctor</th>
+                        <th class="text-center">Comm %</th>
+                        <th class="text-right">Sales (₹)</th>
+                        <th class="text-right">Commission (₹)</th>
+                        <th class="text-right">Paid (₹)</th>
+                        <th class="text-right">Outstanding (₹)</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr class="{% if row.is_locked %}row-locked{% elif row.is_settled %}row-settled{% endif %}">
+                        <td class="text-center text-crm-muted">{{ row.sl_no }}</td>
+                        <td><span class="badge bg-secondary">{{ row.period }}</span></td>
+                        <td><strong>{{ row.doctor_name }}</strong>
+                            {% if row.doctor_location != "—" %}
+                            <br><small class="text-crm-muted">{{ row.doctor_location }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if row.commission_pct is not None %}
+                            {{ row.commission_pct }}%
+                            {% else %}
+                            <span class="text-warning fw-semibold">Not Set</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right value-cell">₹{{ row.total_sales_value|floatformat:2 }}</td>
+                        <td class="text-right value-cell">₹{{ row.total_commission|floatformat:2 }}</td>
+                        <td class="text-right value-cell">₹{{ row.paid_amount|floatformat:2 }}</td>
+                        <td class="text-right value-cell {% if row.outstanding_balance > 0 %}text-negative{% else %}text-positive{% endif %}">
+                            ₹{{ row.outstanding_balance|floatformat:2 }}
+                        </td>
+                        <td class="text-center">
+                            {% if row.status == "awaiting_commission" %}
+                            <span class="crm-badge pending">Awaiting Commission</span>
+                            {% elif row.status == "open" %}
+                            <span class="crm-badge in-progress">Open</span>
+                            {% elif row.status == "partial" %}
+                            <span class="crm-badge in-progress" style="background:rgba(59,130,246,.15);color:#1d4ed8;">Partial</span>
+                            {% elif row.status == "settled" %}
+                            <span class="crm-badge completed">
+                                <i class="bi bi-check-circle-fill"></i> Settled
+                            </span>
+                            {% elif row.status == "locked" %}
+                            <span class="crm-badge no-investment">
+                                <i class="bi bi-lock-fill"></i> Locked
+                            </span>
+                            {% endif %}
+                            {% if row.settlement_reason != "—" %}
+                            <br><small class="text-crm-muted" style="font-size:.7rem;">{{ row.settlement_reason }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{% url 'sales:campaign_manage' campaign_id=row.campaign_id %}"
+                               class="btn-crm-outline btn-sm">
+                                <i class="bi bi-sliders"></i> Manage
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-journal-x"></i>
+            <p>No campaigns found for the selected filters.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const searchInput = document.getElementById('filter-search');
+    if (!searchInput) return;
+    const table = document.querySelector('#ledger-table tbody');
+    if (!table) return;
+    searchInput.addEventListener('input', function () {
+        const term = this.value.toLowerCase();
+        table.querySelectorAll('tr').forEach(row => {
+            row.style.display = row.textContent.toLowerCase().includes(term) ? '' : 'none';
+        });
+    });
+})();
+</script>
+{% endblock %}

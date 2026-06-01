@@ -74,7 +74,19 @@
             <li>
                 <a href="{% url 'sales:postpaid_report' %}"
                    class="{% if request.resolver_match.url_name == 'postpaid_report' or request.resolver_match.url_name == 'campaign_manage' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-bar-graph"></i> Postpaid Report
+                    <i class="bi bi-sliders"></i> Campaign Monitor
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'sales:postpaid_sales_report' %}"
+                   class="{% if request.resolver_match.url_name == 'postpaid_sales_report' %}active{% endif %}">
+                    <i class="bi bi-file-earmark-bar-graph"></i> Sales Report
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'sales:settlement_ledger' %}"
+                   class="{% if request.resolver_match.url_name == 'settlement_ledger' %}active{% endif %}">
+                    <i class="bi bi-journal-text"></i> Settlement Ledger
                 </a>
             </li>
             {% endif %}

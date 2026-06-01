@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+
+{% block title %}Postpaid Sales Report — Medburg CRM{% endblock %}
+{% block page_title %}Postpaid Sales Report{% endblock %}
+{% block page_subtitle %}Entry-level postpaid sales with doctor, rep, medicine, and monthly breakdowns{% endblock %}
+
+{% block content %}
+
+<!-- ── KPI Summary Cards ─────────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Entries</div>
+            <div class="kpi-value">{{ summary.total_entries }}</div>
+        </div>
+        <div class="kpi-icon entries"><i class="bi bi-receipt"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Quantity</div>
+            <div class="kpi-value">{{ summary.total_quantity|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon quantity"><i class="bi bi-box-seam"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Sales Value</div>
+            <div class="kpi-value">₹{{ summary.total_value|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Commission</div>
+            <div class="kpi-value">₹{{ summary.total_commission|floatformat:"0" }}</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-award"></i></div>
+    </div>
+</div>
+
+<!-- ── Filter Bar ────────────────────────────────────── -->
+<div class="filter-card">
+    <form method="get" id="sales-report-filter-form">
+        <div class="row g-3 align-items-end">
+
+            <!-- Date range -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-from-date">From Date</label>
+                <input type="date" class="form-control" id="filter-from-date" name="from_date"
+                       value="{{ current_from_date }}">
+            </div>
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-to-date">To Date</label>
+                <input type="date" class="form-control" id="filter-to-date" name="to_date"
+                       value="{{ current_to_date }}">
+            </div>
+
+            <!-- Doctor -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-doctor">Doctor</label>
+                <select class="form-select" id="filter-doctor" name="doctor">
+                    <option value="">All Doctors</option>
+                    {% for doc in filter_options.doctors %}
+                    <option value="{{ doc.id }}" {% if current_doctor == doc.id %}selected{% endif %}>
+                        {{ doc.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Rep -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-rep">Sales Rep</label>
+                <select class="form-select" id="filter-rep" name="rep">
+                    <option value="">All Reps</option>
+                    {% for r in filter_options.reps %}
+                    <option value="{{ r.id }}" {% if current_rep == r.id %}selected{% endif %}>
+                        {{ r.first_name }} {{ r.last_name }}{% if not r.first_name %}{{ r.username }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Month -->
+            <div class="col-6 col-md-1">
+                <label class="form-label" for="filter-month">Month</label>
+                <select class="form-select" id="filter-month" name="month">
+                    <option value="">All</option>
+                    {% for num, name in filter_options.months %}
+                    <option value="{{ num }}" {% if current_month == num %}selected{% endif %}>
+                        {{ num|stringformat:"02d" }} — {{ name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Year -->
+            <div class="col-6 col-md-1">
+                <label class="form-label" for="filter-year">Year</label>
+                <select class="form-select" id="filter-year" name="year">
+                    <option value="">All</option>
+                    {% for y in filter_options.years %}
+                    <option value="{{ y }}" {% if current_year == y %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status -->
+            <div class="col-6 col-md-2">
+                <label class="form-label" for="filter-status">Campaign Status</label>
+                <select class="form-select" id="filter-status" name="status">
+                    <option value="">All Statuses</option>
+                    {% for val, label in filter_options.statuses %}
+                    <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-12 col-sm-6 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Apply
+                </button>
+                {% if has_filters %}
+                <a href="{% url 'sales:postpaid_sales_report' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-lg"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ── Tab navigation ────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3" id="salesReportTabs" role="tablist"
+    style="border-bottom: 2px solid var(--border-color);">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="detail-tab" data-bs-toggle="tab"
+                data-bs-target="#tab-detail" type="button" role="tab">
+            <i class="bi bi-table"></i> Sales Detail
+            <span class="count-badge ms-1">{{ rows|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="monthly-tab" data-bs-toggle="tab"
+                data-bs-target="#tab-monthly" type="button" role="tab">
+            <i class="bi bi-calendar3"></i> By Month
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="doctor-tab" data-bs-toggle="tab"
+                data-bs-target="#tab-doctor" type="button" role="tab">
+            <i class="bi bi-person-badge"></i> By Doctor
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="rep-tab" data-bs-toggle="tab"
+                data-bs-target="#tab-rep" type="button" role="tab">
+            <i class="bi bi-people"></i> By Rep
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="medicine-tab" data-bs-toggle="tab"
+                data-bs-target="#tab-medicine" type="button" role="tab">
+            <i class="bi bi-capsule"></i> By Medicine
+        </button>
+    </li>
+</ul>
+
+<!-- ── Tab content ──────────────────────────────────── -->
+<div class="tab-content" id="salesReportTabContent">
+
+    <!-- Detail Tab -->
+    <div class="tab-pane fade show active" id="tab-detail" role="tabpanel">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-table"></i> Sales Detail
+                </h5>
+                {% if rows %}
+                <a href="{% url 'sales:export_postpaid_sales' %}?{{ request.GET.urlencode }}"
+                   class="btn-crm-secondary" id="btn-export-sales">
+                    <i class="bi bi-file-earmark-excel"></i> Export to Excel
+                </a>
+                {% endif %}
+            </div>
+            <div class="data-card-body">
+                {% if rows %}
+                <div class="table-responsive">
+                    <table class="crm-table" id="sales-detail-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center">Sl</th>
+                                <th>Period</th>
+                                <th>Doctor</th>
+                                <th>Rep</th>
+                                <th>Medicine</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-right">PTS</th>
+                                <th class="text-right">Value (₹)</th>
+                                <th class="text-center">Comm %</th>
+                                <th class="text-right">Commission (₹)</th>
+                                <th>Date</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td class="text-center text-crm-muted">{{ row.sl_no }}</td>
+                                <td><span class="badge bg-secondary">{{ row.period }}</span></td>
+                                <td><strong>{{ row.doctor_name }}</strong></td>
+                                <td>{{ row.rep_name }}</td>
+                                <td>{{ row.medicine_name }}</td>
+                                <td class="text-center">{{ row.quantity }}</td>
+                                <td class="text-right value-cell">₹{{ row.pts_at_sale|floatformat:2 }}</td>
+                                <td class="text-right value-cell">₹{{ row.value_at_sale|floatformat:2 }}</td>
+                                <td class="text-center">{{ row.commission_pct }}%</td>
+                                <td class="text-right value-cell text-positive">₹{{ row.commission_earned|floatformat:2 }}</td>
+                                <td>{{ row.entry_date|date:"d M Y" }}</td>
+                                <td class="text-center">
+                                    {% if row.campaign_status == "Awaiting Commission" %}
+                                    <span class="crm-badge pending">{{ row.campaign_status }}</span>
+                                    {% elif row.campaign_status == "Open" %}
+                                    <span class="crm-badge in-progress">{{ row.campaign_status }}</span>
+                                    {% elif row.campaign_status == "Partial" %}
+                                    <span class="crm-badge in-progress" style="background:rgba(59,130,246,.15);color:#1d4ed8;">{{ row.campaign_status }}</span>
+                                    {% elif row.campaign_status == "Settled" %}
+                                    <span class="crm-badge completed">{{ row.campaign_status }}</span>
+                                    {% elif row.campaign_status == "Locked" %}
+                                    <span class="crm-badge no-investment"><i class="bi bi-lock-fill"></i> {{ row.campaign_status }}</span>
+                                    {% else %}
+                                    <span class="crm-badge">{{ row.campaign_status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="bi bi-inbox"></i>
+                    <p>No postpaid sales entries found for the selected filters.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Monthly Tab -->
+    <div class="tab-pane fade" id="tab-monthly" role="tabpanel">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-calendar3"></i> Monthly Totals</h5>
+            </div>
+            <div class="data-card-body">
+                {% if monthly_totals %}
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead><tr>
+                            <th>Period</th>
+                            <th class="text-center">Qty</th>
+                            <th class="text-right">Sales Value (₹)</th>
+                            <th class="text-right">Commission (₹)</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for rec in monthly_totals %}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{ rec.campaign__month|stringformat:"02d" }}/{{ rec.campaign__year }}</span></td>
+                            <td class="text-center">{{ rec.total_qty }}</td>
+                            <td class="text-right value-cell">₹{{ rec.total_value|floatformat:2 }}</td>
+                            <td class="text-right value-cell text-positive">₹{{ rec.total_commission|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state"><i class="bi bi-inbox"></i><p>No data.</p></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- By Doctor Tab -->
+    <div class="tab-pane fade" id="tab-doctor" role="tabpanel">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-person-badge"></i> Doctor-wise Totals</h5>
+            </div>
+            <div class="data-card-body">
+                {% if doctor_totals %}
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead><tr>
+                            <th>Doctor</th>
+                            <th class="text-center">Qty</th>
+                            <th class="text-right">Sales Value (₹)</th>
+                            <th class="text-right">Commission (₹)</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for rec in doctor_totals %}
+                        <tr>
+                            <td><strong>{{ rec.campaign__doctor__name }}</strong></td>
+                            <td class="text-center">{{ rec.total_qty }}</td>
+                            <td class="text-right value-cell">₹{{ rec.total_value|floatformat:2 }}</td>
+                            <td class="text-right value-cell text-positive">₹{{ rec.total_commission|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state"><i class="bi bi-inbox"></i><p>No data.</p></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- By Rep Tab -->
+    <div class="tab-pane fade" id="tab-rep" role="tabpanel">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-people"></i> Rep-wise Totals</h5>
+            </div>
+            <div class="data-card-body">
+                {% if rep_totals %}
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead><tr>
+                            <th>Sales Rep</th>
+                            <th class="text-center">Qty</th>
+                            <th class="text-right">Sales Value (₹)</th>
+                            <th class="text-right">Commission (₹)</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for rec in rep_totals %}
+                        <tr>
+                            <td>
+                                {% if rec.rep__first_name %}
+                                    {{ rec.rep__first_name }} {{ rec.rep__last_name }}
+                                {% else %}
+                                    {{ rec.rep__username }}
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ rec.total_qty }}</td>
+                            <td class="text-right value-cell">₹{{ rec.total_value|floatformat:2 }}</td>
+                            <td class="text-right value-cell text-positive">₹{{ rec.total_commission|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state"><i class="bi bi-inbox"></i><p>No data.</p></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- By Medicine Tab -->
+    <div class="tab-pane fade" id="tab-medicine" role="tabpanel">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-capsule"></i> Medicine-wise Totals</h5>
+            </div>
+            <div class="data-card-body">
+                {% if medicine_totals %}
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead><tr>
+                            <th>Medicine</th>
+                            <th class="text-center">Qty</th>
+                            <th class="text-right">Sales Value (₹)</th>
+                            <th class="text-right">Commission (₹)</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for rec in medicine_totals %}
+                        <tr>
+                            <td>
+                                {{ rec.medicine__name }}
+                                {% if rec.medicine__brand %}
+                                <small class="text-crm-muted">({{ rec.medicine__brand }})</small>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ rec.total_qty }}</td>
+                            <td class="text-right value-cell">₹{{ rec.total_value|floatformat:2 }}</td>
+                            <td class="text-right value-cell text-positive">₹{{ rec.total_commission|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state"><i class="bi bi-inbox"></i><p>No data.</p></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div><!-- /tab-content -->
+
+{% endblock %}

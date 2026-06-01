@@ -30,6 +30,20 @@ from .services.postpaid_service import (
     get_campaign_queryset,
     get_campaign_summary,
     get_campaign_filter_options,
+    # MR-9.0 report functions
+    get_postpaid_report_filter_options,
+    get_postpaid_sales_queryset,
+    get_postpaid_sales_report,
+    get_postpaid_sales_summary,
+    get_doctor_wise_totals,
+    get_rep_wise_totals,
+    get_medicine_wise_totals,
+    get_monthly_totals,
+    get_settlement_ledger_queryset,
+    get_settlement_ledger_report,
+    get_settlement_summary,
+    export_postpaid_sales_to_excel,
+    export_settlement_ledger_to_excel,
 )
 
 
@@ -348,3 +362,213 @@ def api_campaign_for_doctor(request, doctor_id, month, year):
             "is_prepaid": False,
             "status_display": "Not Started (Will Auto-Create)",
         })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MR-9.0: Postpaid Sales Report
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _safe_int(val):
+    try:
+        return int(val) if val else None
+    except (ValueError, TypeError):
+        return None
+
+
+@admin_required
+def postpaid_sales_report_view(request):
+    """
+    Postpaid Sales Report — entry-level detail across all PostpaidSaleEntry rows.
+    Shows monthly, doctor-wise, rep-wise, and medicine-wise breakdowns.
+    """
+    from datetime import datetime as _dt
+
+    # ── Parse filters ──────────────────────────────
+    doctor_id   = _safe_int(request.GET.get("doctor", ""))
+    rep_id      = _safe_int(request.GET.get("rep", ""))
+    month       = _safe_int(request.GET.get("month", ""))
+    year        = _safe_int(request.GET.get("year", ""))
+    medicine_id = _safe_int(request.GET.get("medicine", ""))
+    status      = request.GET.get("status", "").strip()
+
+    from_date_raw = request.GET.get("from_date", "").strip()
+    to_date_raw   = request.GET.get("to_date", "").strip()
+    from_date = None
+    to_date   = None
+    if from_date_raw:
+        try:
+            from_date = _dt.strptime(from_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if to_date_raw:
+        try:
+            to_date = _dt.strptime(to_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    filter_kwargs = dict(
+        doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
+        medicine_id=medicine_id, status=status or None,
+        from_date=from_date, to_date=to_date,
+    )
+    has_filters = any([doctor_id, rep_id, month, year, medicine_id, status, from_date, to_date])
+
+    # ── Data ───────────────────────────────────────
+    qs              = get_postpaid_sales_queryset(**filter_kwargs)
+    summary         = get_postpaid_sales_summary(qs)
+    rows            = get_postpaid_sales_report(qs)
+    doctor_totals   = list(get_doctor_wise_totals(qs))
+    rep_totals      = list(get_rep_wise_totals(qs))
+    medicine_totals = list(get_medicine_wise_totals(qs))
+    monthly_totals  = list(get_monthly_totals(qs))
+    filter_options  = get_postpaid_report_filter_options()
+
+    context = {
+        "rows":             rows,
+        "summary":          summary,
+        "doctor_totals":    doctor_totals,
+        "rep_totals":       rep_totals,
+        "medicine_totals":  medicine_totals,
+        "monthly_totals":   monthly_totals,
+        "filter_options":   filter_options,
+        "has_filters":      has_filters,
+        # Sticky filter values
+        "current_doctor":   doctor_id,
+        "current_rep":      rep_id,
+        "current_month":    month,
+        "current_year":     year,
+        "current_medicine": medicine_id,
+        "current_status":   status,
+        "current_from_date": from_date_raw,
+        "current_to_date":   to_date_raw,
+    }
+    return render(request, "sales/postpaid_sales_report.html", context)
+
+
+@admin_required
+def export_postpaid_sales_view(request):
+    """
+    Excel export for the Postpaid Sales Report.
+    Passes the same filters as the report view and streams a .xlsx file.
+    """
+    from datetime import datetime as _dt
+
+    doctor_id   = _safe_int(request.GET.get("doctor", ""))
+    rep_id      = _safe_int(request.GET.get("rep", ""))
+    month       = _safe_int(request.GET.get("month", ""))
+    year        = _safe_int(request.GET.get("year", ""))
+    medicine_id = _safe_int(request.GET.get("medicine", ""))
+    status      = request.GET.get("status", "").strip()
+
+    from_date, to_date = None, None
+    raw_from = request.GET.get("from_date", "").strip()
+    raw_to   = request.GET.get("to_date",   "").strip()
+    if raw_from:
+        try: from_date = _dt.strptime(raw_from, "%Y-%m-%d").date()
+        except ValueError: pass
+    if raw_to:
+        try: to_date = _dt.strptime(raw_to, "%Y-%m-%d").date()
+        except ValueError: pass
+
+    qs = get_postpaid_sales_queryset(
+        doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
+        medicine_id=medicine_id, status=status or None,
+        from_date=from_date, to_date=to_date,
+    )
+    summary = get_postpaid_sales_summary(qs)
+    rows    = get_postpaid_sales_report(qs)
+
+    # Pack aggregation tables into summary dict for multi-sheet export
+    summary["_rows"]            = rows
+    summary["_doctor_totals"]   = list(get_doctor_wise_totals(qs))
+    summary["_rep_totals"]      = list(get_rep_wise_totals(qs))
+    summary["_medicine_totals"] = list(get_medicine_wise_totals(qs))
+    summary["_monthly_totals"]  = list(get_monthly_totals(qs))
+
+    buf  = export_postpaid_sales_to_excel(rows, summary)
+    ts   = _dt.now().strftime("%Y%m%d_%H%M")
+    name = f"postpaid_sales_report_{ts}.xlsx"
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MR-9.0: Settlement Ledger Report
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@admin_required
+def settlement_ledger_view(request):
+    """
+    Settlement Ledger Report — one row per PostpaidCampaign.
+    Shows commission, paid, outstanding, and settlement status for every campaign.
+    """
+    doctor_id = _safe_int(request.GET.get("doctor", ""))
+    rep_id    = _safe_int(request.GET.get("rep", ""))
+    month     = _safe_int(request.GET.get("month", ""))
+    year      = _safe_int(request.GET.get("year", ""))
+    status    = request.GET.get("status", "").strip()
+    search    = request.GET.get("search", "").strip()
+
+    has_filters = any([doctor_id, rep_id, month, year, status, search])
+
+    qs      = get_settlement_ledger_queryset(
+        doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
+        status=status or None, search=search or None,
+    )
+    rows    = get_settlement_ledger_report(qs)
+    summary = get_settlement_summary(qs)
+    filter_options = get_postpaid_report_filter_options()
+
+    context = {
+        "rows":            rows,
+        "summary":         summary,
+        "filter_options":  filter_options,
+        "has_filters":     has_filters,
+        "current_doctor":  doctor_id,
+        "current_rep":     rep_id,
+        "current_month":   month,
+        "current_year":    year,
+        "current_status":  status,
+        "current_search":  search,
+    }
+    return render(request, "sales/settlement_ledger.html", context)
+
+
+@admin_required
+def export_settlement_ledger_view(request):
+    """
+    Excel export for the Settlement Ledger Report.
+    """
+    from datetime import datetime as _dt
+
+    doctor_id = _safe_int(request.GET.get("doctor", ""))
+    rep_id    = _safe_int(request.GET.get("rep", ""))
+    month     = _safe_int(request.GET.get("month", ""))
+    year      = _safe_int(request.GET.get("year", ""))
+    status    = request.GET.get("status", "").strip()
+    search    = request.GET.get("search", "").strip()
+
+    qs      = get_settlement_ledger_queryset(
+        doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
+        status=status or None, search=search or None,
+    )
+    rows    = get_settlement_ledger_report(qs)
+    summary = get_settlement_summary(qs)
+
+    buf  = export_settlement_ledger_to_excel(rows, summary)
+    ts   = _dt.now().strftime("%Y%m%d_%H%M")
+    name = f"settlement_ledger_{ts}.xlsx"
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
