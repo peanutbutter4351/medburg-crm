@@ -12,6 +12,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from core.constants import ROLE_REP
 from core.decorators import admin_required
 from doctors.models import Doctor
 from .models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment
@@ -90,43 +91,49 @@ def postpaid_sales_entry_view(request):
             quantity = form.cleaned_data["quantity"]
             notes = form.cleaned_data.get("notes", "")
 
-            # 1. Resolve or Auto-Create Campaign in awaiting_commission status (NULL commission)
-            campaign, created = PostpaidCampaign.objects.get_or_create(
-                doctor=doctor,
-                month=month,
-                year=year,
-                defaults={
-                    "commission_percentage": None,
-                    "status": PostpaidCampaign.STATUS_AWAITING_COMMISSION,
-                }
-            )
+            from django.db import transaction
 
-            # 2. Check campaign lock state
-            if campaign.status in (
-                PostpaidCampaign.STATUS_PARTIAL,
-                PostpaidCampaign.STATUS_SETTLED,
-                PostpaidCampaign.STATUS_LOCKED,
-            ):
-                form.add_error("doctor", f"This campaign is locked, partial, or settled. No new entries can be added.")
-            else:
-                try:
-                    # 3. Create PostpaidSaleEntry
-                    sale = PostpaidSaleEntry.objects.create(
-                        campaign=campaign,
-                        medicine=medicine,
-                        quantity=quantity,
-                        entry_date=date.today(),
-                        rep=request.user,
-                        notes=notes
+            try:
+                with transaction.atomic():
+                    # 1. Resolve or Auto-Create Campaign in awaiting_commission status (NULL commission)
+                    campaign, created = PostpaidCampaign.objects.get_or_create(
+                        doctor=doctor,
+                        month=month,
+                        year=year,
+                        defaults={
+                            "commission_percentage": None,
+                            "status": PostpaidCampaign.STATUS_AWAITING_COMMISSION,
+                        }
                     )
-                    messages.success(
-                        request,
-                        f"✅ Postpaid Sale Saved — {sale.medicine.name} × {sale.quantity} "
-                        f"for Dr. {doctor.name} ({month:02d}/{year})",
-                    )
-                    return redirect("sales:postpaid_entry")
-                except ValidationError as e:
-                    form.add_error(None, e)
+
+                    # Lock campaign row using select_for_update() before status validation.
+                    campaign = PostpaidCampaign.objects.select_for_update().get(pk=campaign.pk)
+
+                    # 2. Check campaign lock state
+                    if campaign.status in (
+                        PostpaidCampaign.STATUS_PARTIAL,
+                        PostpaidCampaign.STATUS_SETTLED,
+                        PostpaidCampaign.STATUS_LOCKED,
+                    ):
+                        form.add_error("doctor", "This campaign is locked, partial, or settled. No new entries can be added.")
+                    else:
+                        # 3. Create PostpaidSaleEntry
+                        sale = PostpaidSaleEntry.objects.create(
+                            campaign=campaign,
+                            medicine=medicine,
+                            quantity=quantity,
+                            entry_date=date.today(),
+                            rep=request.user,
+                            notes=notes
+                        )
+                        messages.success(
+                            request,
+                            f"✅ Postpaid Sale Saved — {sale.medicine.name} × {sale.quantity} "
+                            f"for Dr. {doctor.name} ({month:02d}/{year})",
+                        )
+                        return redirect("sales:postpaid_entry")
+            except ValidationError as e:
+                form.add_error(None, e)
     else:
         form = PostpaidSalesEntryForm(rep=request.user)
 
@@ -330,6 +337,9 @@ def api_medicines_for_doctor(request, doctor_id):
     Also returns the doctor's ROI summary for the info panel.
     """
     doctor = get_object_or_404(Doctor, pk=doctor_id, is_active=True)
+    if request.user.role == ROLE_REP:
+        if doctor.assigned_rep != request.user:
+            return HttpResponseForbidden("You do not have access to this doctor's data.")
     medicines = get_medicines_for_doctor(doctor_id)
     investments = get_investments_data_for_doctor(doctor)
 
@@ -347,6 +357,9 @@ def api_campaign_for_doctor(request, doctor_id, month, year):
     AJAX endpoint: returns postpaid campaign info for dynamic UI panels.
     """
     doctor = get_object_or_404(Doctor, pk=doctor_id, is_active=True)
+    if request.user.role == ROLE_REP:
+        if doctor.assigned_rep != request.user:
+            return HttpResponseForbidden("You do not have access to this doctor's data.")
     if doctor.mode != "postpaid":
         return JsonResponse({"exists": False, "is_prepaid": True})
 

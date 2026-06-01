@@ -1580,3 +1580,154 @@ class PostpaidReportTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
+class CriticalProductionFixesTests(TestCase):
+    def setUp(self):
+        self.rep1 = User.objects.create_user(username="rep1_fixes", password="pwd", role="rep")
+        self.rep2 = User.objects.create_user(username="rep2_fixes", password="pwd", role="rep")
+        self.admin = User.objects.create_user(username="admin_fixes", password="pwd", role="admin")
+        self.admin.is_superuser = True
+        self.admin.is_staff = True
+        self.admin.save()
+
+        self.doctor1 = Doctor.objects.create(
+            name="Dr. Assigned to Rep1",
+            mode="postpaid",
+            assigned_rep=self.rep1,
+            is_active=True
+        )
+        self.medicine = Medicine.objects.create(
+            name="Medicine Fixes",
+            pts=Decimal("120.00"),
+            ptr=Decimal("100.00"),
+            mrp=Decimal("150.00"),
+            is_active=True
+        )
+        DoctorMedicine.objects.create(doctor=self.doctor1, medicine=self.medicine)
+
+    def test_cross_rep_api_access(self):
+        """
+        Reps should be forbidden (403) from accessing another rep's doctor data via AJAX endpoints.
+        """
+        # Log in as rep2 (who is NOT assigned to doctor1)
+        self.client.force_login(self.rep2)
+        from django.urls import reverse
+
+        # 1. Test api_medicines_for_doctor
+        url_meds = reverse("sales:api_medicines", kwargs={"doctor_id": self.doctor1.id})
+        response = self.client.get(url_meds)
+        self.assertEqual(response.status_code, 403)
+
+        # 2. Test api_campaign_for_doctor
+        url_camp = reverse("sales:api_campaign", kwargs={"doctor_id": self.doctor1.id, "month": 6, "year": 2026})
+        response = self.client.get(url_camp)
+        self.assertEqual(response.status_code, 403)
+
+        # Log in as rep1 (assigned rep) - should succeed (200)
+        self.client.force_login(self.rep1)
+        response = self.client.get(url_meds)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(url_camp)
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_api_access(self):
+        """
+        Admins should be allowed (200) to access any doctor's data via AJAX endpoints.
+        """
+        self.client.force_login(self.admin)
+        from django.urls import reverse
+
+        url_meds = reverse("sales:api_medicines", kwargs={"doctor_id": self.doctor1.id})
+        response = self.client.get(url_meds)
+        self.assertEqual(response.status_code, 200)
+
+        url_camp = reverse("sales:api_campaign", kwargs={"doctor_id": self.doctor1.id, "month": 6, "year": 2026})
+        response = self.client.get(url_camp)
+        self.assertEqual(response.status_code, 200)
+
+    def test_campaign_delete_action_removed(self):
+        """
+        Verify that bulk delete_selected action is removed from PostpaidCampaignAdmin.
+        """
+        from django.contrib.admin.sites import site
+        from django.test.client import RequestFactory
+
+        admin_inst = site._registry[PostpaidCampaign]
+        request = RequestFactory().get('/admin/sales/postpaidcampaign/')
+        request.user = self.admin
+        actions = admin_inst.get_actions(request)
+        self.assertNotIn('delete_selected', actions)
+
+    def test_locked_campaign_delete_denied(self):
+        """
+        Verify that PostpaidCampaignAdmin delete permission is allowed only for Open status,
+        and denied for Awaiting Commission, Partial, Settled, and Locked campaigns.
+        """
+        from django.contrib.admin.sites import site
+        from django.test.client import RequestFactory
+
+        admin_inst = site._registry[PostpaidCampaign]
+        request = RequestFactory().get('/admin/sales/postpaidcampaign/')
+        request.user = self.admin
+
+        # Open status campaign -> deletable (True)
+        camp_open = PostpaidCampaign.objects.create(
+            doctor=self.doctor1, month=1, year=2026, status=PostpaidCampaign.STATUS_OPEN, commission_percentage=Decimal("10.00")
+        )
+        self.assertTrue(admin_inst.has_delete_permission(request, camp_open))
+
+        # Awaiting Commission status campaign -> NOT deletable (False)
+        camp_awaiting = PostpaidCampaign.objects.create(
+            doctor=self.doctor1, month=2, year=2026, status=PostpaidCampaign.STATUS_AWAITING_COMMISSION
+        )
+        self.assertFalse(admin_inst.has_delete_permission(request, camp_awaiting))
+
+        # Partial status campaign -> NOT deletable (False)
+        camp_partial = PostpaidCampaign.objects.create(
+            doctor=self.doctor1, month=3, year=2026, status=PostpaidCampaign.STATUS_PARTIAL, commission_percentage=Decimal("10.00")
+        )
+        self.assertFalse(admin_inst.has_delete_permission(request, camp_partial))
+
+        # Settled status campaign -> NOT deletable (False)
+        camp_settled = PostpaidCampaign.objects.create(
+            doctor=self.doctor1, month=4, year=2026, status=PostpaidCampaign.STATUS_SETTLED, commission_percentage=Decimal("10.00")
+        )
+        self.assertFalse(admin_inst.has_delete_permission(request, camp_settled))
+
+        # Locked status campaign -> NOT deletable (False)
+        camp_locked = PostpaidCampaign.objects.create(
+            doctor=self.doctor1, month=5, year=2026, status=PostpaidCampaign.STATUS_LOCKED, commission_percentage=Decimal("10.00")
+        )
+        self.assertFalse(admin_inst.has_delete_permission(request, camp_locked))
+
+    def test_atomic_transaction_protection(self):
+        """
+        Verify that postpaid_sales_entry_view uses select_for_update to lock campaign.
+        """
+        from unittest.mock import patch
+        from django.db.models.query import QuerySet
+        from django.urls import reverse
+
+        self.client.force_login(self.rep1)
+        url = reverse("sales:postpaid_entry")
+
+        original_select_for_update = QuerySet.select_for_update
+
+        with patch.object(QuerySet, 'select_for_update', autospec=True) as mock_select:
+            mock_select.side_effect = lambda self, *args, **kwargs: original_select_for_update(self, *args, **kwargs)
+            
+            response = self.client.post(url, {
+                "doctor": self.doctor1.id,
+                "month": 6,
+                "year": 2026,
+                "medicine": self.medicine.id,
+                "quantity": 10,
+                "notes": "Testing lock"
+            })
+            
+            # Post request should succeed or redirect, and mock_select must have been called
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue(mock_select.called)
+
+

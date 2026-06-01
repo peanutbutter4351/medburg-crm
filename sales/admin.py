@@ -293,6 +293,19 @@ class PostpaidCampaignAdmin(admin.ModelAdmin):
     def get_outstanding_balance(self, obj):
         return _fmt_currency(obj.outstanding_balance)
 
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions
+
+    def has_delete_permission(self, request, obj=None):
+        if obj:
+            if obj.status == PostpaidCampaign.STATUS_OPEN:
+                return super().has_delete_permission(request, obj)
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 @admin.register(PostpaidSaleEntry)
 class PostpaidSaleEntryAdmin(admin.ModelAdmin):
