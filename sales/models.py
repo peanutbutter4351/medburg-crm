@@ -1,5 +1,5 @@
 """
-Sales models — SalesEntry and PostpaidEntry.
+Sales models — SalesEntry, PostpaidCampaign engine, and Correction Layer.
 
 Business rules  (ARCH-2A Snapshot Accounting)
 ──────────────────────────────────────────────
@@ -17,16 +17,15 @@ Snapshot fields
 • value_at_sale     — quantity × pts_at_sale (frozen forever after creation)
 • is_snapshot_legacy— True for rows backfilled before ARCH-2A (best-effort)
 
-PostpaidEntry
-─────────────
-• Records ROI payments for doctors in postpaid mode.
-• Linked to a Doctor and Medicine with roi_percentage.
-• amount is auto-computed from scoped SalesEntry data on **first save only**.
-• total_sales_value stores the sales snapshot used in calculation (audit trail).
-• Supports three payout scopes: date range, monthly, campaign.
-• Unique constraints prevent duplicate payouts for the same scope.
-• payment_status tracks unpaid → partial → paid lifecycle.
-• paid_amount tracks the actual amount disbursed (supports partial payments).
+Postpaid Engine (MR-5 / MR-6 / MR-7 / MR-8)
+─────────────────────────────────────────────
+• PostpaidCampaign    — per-doctor/month campaign ledger
+• PostpaidSaleEntry   — frozen-snapshot sale line items
+• CampaignPayment     — append-only payment ledger
+• PostpaidCampaignCorrection — append-only audit adjustments on locked campaigns
+
+NOTE: The legacy PostpaidEntry model has been fully removed in MR-8.0.
+All postpaid commission tracking now uses the PostpaidCampaign engine.
 """
 
 from decimal import Decimal
@@ -34,19 +33,9 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import F, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Sum
+from django.utils import timezone
 
-from core.constants import (
-    PAYMENT_STATUS_CHOICES,
-    PAYMENT_STATUS_PAID,
-    PAYMENT_STATUS_PARTIAL,
-    PAYMENT_STATUS_UNPAID,
-    PAYOUT_TYPE_CAMPAIGN,
-    PAYOUT_TYPE_CHOICES,
-    PAYOUT_TYPE_MONTHLY,
-    PAYOUT_TYPE_RANGE,
-)
 from core.models import BaseModel
 
 
@@ -235,351 +224,11 @@ class SalesEntry(BaseModel):
                 pass  # Investment was deleted concurrently — safe to ignore.
 
 
-class PostpaidEntry(BaseModel):
-    """
-    A postpaid ROI entry for a doctor.
-
-    Financial integrity
-    ───────────────────
-    • amount is computed **once** on initial save and never recalculated.
-    • total_sales_value stores the raw sales total used in the calculation
-      as an auditable snapshot.
-    • Unique constraints per payout type prevent duplicate payouts.
-
-    Payment lifecycle
-    ─────────────────
-    unpaid → partial → paid
-    • payment_status replaces the old is_paid boolean.
-    • paid_amount tracks the actual disbursement (supports partial payments).
-    • balance_amount = amount − paid_amount.
-
-    Payout scopes
-    ─────────────
-    range    → amount computed from SalesEntry within [start_date, end_date]
-    monthly  → amount computed from SalesEntry in a specific month/year
-    campaign → amount computed from all SalesEntry (no date filter)
-
-    amount = Σ SalesEntry.total_value × (roi_percentage / 100)
-    """
-
-    doctor = models.ForeignKey(
-        "doctors.Doctor",
-        on_delete=models.CASCADE,
-        related_name="postpaid_entries",
-    )
-    medicine = models.ForeignKey(
-        "medicines.Medicine",
-        on_delete=models.CASCADE,
-        related_name="postpaid_entries",
-    )
-    roi_percentage = models.DecimalField(
-        max_digits=6,
-        decimal_places=2,
-        help_text="ROI percentage for this postpaid entry.",
-    )
-
-    # ── Payout scope ────────────────────────────────
-    payout_type = models.CharField(
-        max_length=10,
-        choices=PAYOUT_TYPE_CHOICES,
-        default=PAYOUT_TYPE_CAMPAIGN,
-        db_index=True,
-        help_text="Scope used to compute the payout amount.",
-    )
-    start_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Start of date range (required for 'range' payout type).",
-    )
-    end_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="End of date range (required for 'range' payout type).",
-    )
-    payout_month = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="Month (1–12) for monthly payout type.",
-    )
-    payout_year = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="Year for monthly payout type.",
-    )
-
-    # ── Computed on first save ──────────────────────
-    is_legacy_calculation = models.BooleanField(
-        default=False,
-        help_text="Protects historical payouts from recalculation after PTR→PTS migration.",
-    )
-    amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=Decimal("0"),
-        editable=False,
-        help_text="Auto-calculated on creation: scoped sales value × ROI%. Frozen after first save.",
-    )
-    total_sales_value = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=Decimal("0"),
-        editable=False,
-        help_text="Snapshot of the total sales value used to compute amount.",
-    )
-
-    # ── Payment tracking ────────────────────────────
-    payment_status = models.CharField(
-        max_length=10,
-        choices=PAYMENT_STATUS_CHOICES,
-        default=PAYMENT_STATUS_UNPAID,
-        db_index=True,
-        help_text="Payment lifecycle: unpaid → partial → paid.",
-    )
-    paid_amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=Decimal("0"),
-        help_text="Actual amount paid so far. May be less than amount for partial payments.",
-    )
-    payment_date = models.DateField(
-        null=True,
-        blank=True,
-        help_text="Date of the most recent payment.",
-    )
-    remarks = models.TextField(
-        blank=True,
-        help_text="Optional remarks about this postpaid entry.",
-    )
-
-    class Meta(BaseModel.Meta):
-        verbose_name = "Postpaid Entry"
-        verbose_name_plural = "Postpaid Entries"
-        ordering = ["-created_at"]
-        constraints = [
-            # Prevent duplicate payouts for the same doctor+medicine+scope.
-            # One constraint per payout type using condition= to handle
-            # the different nullable scope fields cleanly.
-            models.UniqueConstraint(
-                fields=["doctor", "medicine", "payout_type", "start_date", "end_date"],
-                condition=models.Q(payout_type="range"),
-                name="unique_postpaid_range",
-            ),
-            models.UniqueConstraint(
-                fields=["doctor", "medicine", "payout_type", "payout_month", "payout_year"],
-                condition=models.Q(payout_type="monthly"),
-                name="unique_postpaid_monthly",
-            ),
-            models.UniqueConstraint(
-                fields=["doctor", "medicine", "payout_type"],
-                condition=models.Q(payout_type="campaign"),
-                name="unique_postpaid_campaign",
-            ),
-        ]
-
-    def __str__(self):
-        return (
-            f"{self.doctor.name} | {self.medicine.name} "
-            f"– ₹{self.amount} ({self.get_payment_status_display()})"
-        )
-
-    # ── Backward-compatible properties ──────────────
-    @property
-    def is_paid(self):
-        """Backward compat: True when fully paid."""
-        return self.payment_status == PAYMENT_STATUS_PAID
-
-    @property
-    def is_partial(self):
-        """True when partially paid."""
-        return self.payment_status == PAYMENT_STATUS_PARTIAL
-
-    @property
-    def balance_amount(self):
-        """Remaining amount to be paid."""
-        return self.amount - self.paid_amount
-
-    # ── Validation ──────────────────────────────────
-    def clean(self):
-        """Validate scope fields and payment consistency."""
-        super().clean()
-        errors = {}
-
-        # Payout scope validation
-        if self.payout_type == PAYOUT_TYPE_RANGE:
-            if not self.start_date:
-                errors["start_date"] = "Start date is required for date-range payout."
-            if not self.end_date:
-                errors["end_date"] = "End date is required for date-range payout."
-            if self.start_date and self.end_date and self.start_date > self.end_date:
-                errors["end_date"] = "End date must be on or after start date."
-
-        elif self.payout_type == PAYOUT_TYPE_MONTHLY:
-            if not self.payout_month:
-                errors["payout_month"] = "Month is required for monthly payout."
-            elif not (1 <= self.payout_month <= 12):
-                errors["payout_month"] = "Month must be between 1 and 12."
-            if not self.payout_year:
-                errors["payout_year"] = "Year is required for monthly payout."
-
-        # Payment validation
-        if self.paid_amount < Decimal("0"):
-            errors["paid_amount"] = "Paid amount cannot be negative."
-        elif self.amount and self.paid_amount > self.amount:
-            errors["paid_amount"] = "Paid amount cannot exceed the entry amount."
-
-        if self.payment_status == PAYMENT_STATUS_PAID and self.paid_amount <= Decimal("0"):
-            errors["paid_amount"] = "Paid amount is required when status is fully paid."
-
-        if errors:
-            raise ValidationError(errors)
-
-    # ── Auto-compute amount on first save ───────────
-    def _get_scoped_sales_qs(self):
-        """
-        Return a SalesEntry queryset filtered by doctor + medicine
-        and scoped by payout_type.
-        """
-        qs = SalesEntry.objects.filter(
-            doctor_id=self.doctor_id,
-            medicine_id=self.medicine_id,
-        )
-
-        if self.payout_type == PAYOUT_TYPE_RANGE:
-            qs = qs.filter(
-                entry_date__gte=self.start_date,
-                entry_date__lte=self.end_date,
-            )
-        elif self.payout_type == PAYOUT_TYPE_MONTHLY:
-            qs = qs.filter(
-                entry_date__month=self.payout_month,
-                entry_date__year=self.payout_year,
-            )
-        # campaign → no date filter
-
-        return qs
-
-    def _compute_amount(self):
-        """
-        Aggregate scoped SalesEntry.total_value and apply ROI%.
-
-        Sets both total_sales_value (snapshot) and amount.
-
-        ╔═══════════════════════════════════════════════════════════════╗
-        ║  ARCH-4A DEFERRED — TWO KNOWN ISSUES                        ║
-        ║                                                               ║
-        ║  Issue 1 — Live PTS:                                         ║
-        ║  Uses Sum(quantity × medicine__pts) — live price at compute  ║
-        ║  time, not a frozen snapshot.  This violates Golden Rule #2  ║
-        ║  for postpaid entries.  Will be fixed in ARCH-4A when        ║
-        ║  PostpaidCampaign and PostpaidSalesEntry replace this model.  ║
-        ║                                                               ║
-        ║  Issue 2 — Engine isolation:                                 ║
-        ║  _get_scoped_sales_qs() queries SalesEntry without filtering  ║
-        ║  by doctor.mode, so prepaid entries for the same             ║
-        ║  doctor+medicine can contaminate postpaid commission amounts. ║
-        ║  Will be fixed in ARCH-4A with the engine split.             ║
-        ╚═══════════════════════════════════════════════════════════════╝
-        """
-        self.total_sales_value = self._get_scoped_sales_qs().aggregate(
-            total=Coalesce(
-                Sum(F("quantity") * F("medicine__pts")),
-                Decimal("0"),
-            ),
-        )["total"]
-
-        self.amount = self.total_sales_value * (
-            self.roi_percentage / Decimal("100")
-        )
-
-    def save(self, *args, **kwargs):
-        """
-        Compute amount from scoped sales on **first save only**, then persist.
-
-        Subsequent saves (e.g. marking as paid) skip recalculation so the
-        payout amount is never silently altered by changed PTR or new sales.
-        Use recalculate_amount() if an explicit recomputation is needed.
-        """
-        # Only run full validation on creation — subsequent updates
-        # (e.g. payment status changes) go through admin or service
-        # methods that handle their own consistency checks.
-        if self._state.adding:
-            self.full_clean()
-            self._compute_amount()
-
-        super().save(*args, **kwargs)
-
-    def recalculate_amount(self):
-        """
-        Explicitly recompute and save the amount.
-
-        Call this when an admin intentionally wants to refresh the
-        payout based on current sales data.  This is the only path
-        that recalculates after initial save.
-        """
-        if getattr(self, "is_legacy_calculation", False):
-            raise ValidationError(
-                "Historical payouts created before the PTR→PTS migration cannot be recalculated."
-            )
-            
-        self._compute_amount()
-        super().save(update_fields=["amount", "total_sales_value", "updated_at"])
-
-    def record_payment(self, payment_amount):
-        """
-        Record a payment against this entry.
-
-        Automatically sets payment_status to 'partial' or 'paid'
-        based on the cumulative paid_amount vs amount.
-        Uses queryset.update() to avoid triggering save() override.
-
-        Returns self (refreshed from DB).
-
-        Raises ValidationError for invalid input, negative amounts,
-        or overpayments.
-        """
-        from datetime import date
-        import decimal
-
-        try:
-            payment_amount = Decimal(str(payment_amount))
-        except (decimal.InvalidOperation, ValueError):
-            raise ValidationError(
-                {"paid_amount": "Invalid payment amount. Please enter a valid number."}
-            )
-
-        if payment_amount <= Decimal("0"):
-            raise ValidationError({"paid_amount": "Payment amount must be positive."})
-
-        new_paid = self.paid_amount + payment_amount
-        if new_paid > self.amount:
-            raise ValidationError(
-                {"paid_amount": f"Payment of \u20b9{payment_amount} would exceed balance of \u20b9{self.balance_amount}."}
-            )
-
-        if new_paid >= self.amount:
-            new_status = PAYMENT_STATUS_PAID
-        else:
-            new_status = PAYMENT_STATUS_PARTIAL
-
-        PostpaidEntry.objects.filter(pk=self.pk).update(
-            paid_amount=new_paid,
-            payment_status=new_status,
-            payment_date=date.today(),
-        )
-        self.refresh_from_db()
-        return self
-
-    # ── Human-readable scope label ──────────────────
-    @property
-    def scope_display(self):
-        """Return a short human-readable scope label."""
-        if self.payout_type == PAYOUT_TYPE_RANGE and self.start_date and self.end_date:
-            return f"{self.start_date.strftime('%d %b %Y')} \u2013 {self.end_date.strftime('%d %b %Y')}"
-        elif self.payout_type == PAYOUT_TYPE_MONTHLY and self.payout_month and self.payout_year:
-            import calendar
-            month_name = calendar.month_abbr[self.payout_month]
-            return f"{month_name} {self.payout_year}"
-        return "All Time"
+# ─────────────────────────────────────────────────────────────────────────────
+# Legacy PostpaidEntry REMOVED in MR-8.0.
+# All postpaid commission tracking now uses the PostpaidCampaign engine.
+# The database table was dropped via migration 0014_drop_postpaid_entry.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -721,8 +370,6 @@ class PostpaidCampaign(BaseModel):
         """
         Recalculate paid_amount from CampaignPayment ledger and advance status.
         """
-        from django.utils import timezone
-        
         agg = self.payments.aggregate(total=Sum('amount'))
         self.paid_amount = agg['total'] or Decimal('0.00')
 
@@ -904,3 +551,180 @@ class CampaignPayment(BaseModel):
     def delete(self, *args, **kwargs):
         raise ValidationError("Ledger entries cannot be deleted.")
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MR-8.0: Postpaid Correction Layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class PostpaidCampaignCorrection(BaseModel):
+    """
+    Append-only audit adjustment record for a Settled or Locked PostpaidCampaign.
+
+    Design principles (MR-8.0)
+    ──────────────────────────
+    • Corrections are APPEND-ONLY. save() blocks updates. delete() is blocked
+      entirely. Financial adjustments must always be forward-looking entries.
+    • The campaign itself stays LOCKED. Corrections do NOT mutate the campaign.
+    • Each correction snapshots the campaign's financial state at the time of
+      the correction so the full adjustment history is self-contained.
+    • amount_adjustment may be positive (increase owed) or negative (credit).
+    • corrected_by is required and captured from the authenticated user at
+      creation time in the view/admin layer.
+
+    Typical use-cases
+    ─────────────────
+    • Post-lock write-off of a residual balance.
+    • Addition of a missed payment recorded outside the system.
+    • Correction of a data-entry error discovered after locking.
+    """
+
+    REASON_WRITE_OFF = "WRITE_OFF"
+    REASON_PAYMENT_MISSED = "PAYMENT_MISSED"
+    REASON_DATA_CORRECTION = "DATA_CORRECTION"
+    REASON_DISPUTE_RESOLUTION = "DISPUTE_RESOLUTION"
+    REASON_MANAGEMENT_APPROVAL = "MANAGEMENT_APPROVAL"
+    REASON_OTHER = "OTHER"
+
+    CORRECTION_REASON_CHOICES = [
+        (REASON_WRITE_OFF, "Write-off (Approved Balance Waiver)"),
+        (REASON_PAYMENT_MISSED, "Missed Payment (Recorded Outside System)"),
+        (REASON_DATA_CORRECTION, "Data Correction (Entry Error)"),
+        (REASON_DISPUTE_RESOLUTION, "Dispute Resolution"),
+        (REASON_MANAGEMENT_APPROVAL, "Management Approval"),
+        (REASON_OTHER, "Other (See Notes)"),
+    ]
+
+    # ── Campaign link ─────────────────────────────────────────────────────────
+    # PROTECT prevents cascade-deleting corrections when a campaign is removed.
+    campaign = models.ForeignKey(
+        PostpaidCampaign,
+        on_delete=models.PROTECT,
+        related_name="corrections",
+        help_text="The Settled or Locked campaign this correction applies to.",
+    )
+
+    # ── Audit identity ────────────────────────────────────────────────────────
+    corrected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="campaign_corrections",
+        help_text="Admin user who authorised this correction.",
+    )
+    corrected_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="Timestamp when the correction was recorded.",
+    )
+
+    # ── Correction detail ─────────────────────────────────────────────────────
+    correction_reason = models.CharField(
+        max_length=30,
+        choices=CORRECTION_REASON_CHOICES,
+        help_text="Predefined reason code for this correction.",
+    )
+    amount_adjustment = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text=(
+            "Signed adjustment amount. Positive = additional amount owed. "
+            "Negative = credit / write-off against the original balance."
+        ),
+    )
+    notes = models.TextField(
+        help_text="Mandatory narrative justification for this correction.",
+    )
+    reference = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Optional external reference (e.g. management approval email, ticket ID).",
+    )
+
+    # ── Campaign state snapshot at correction time ────────────────────────────
+    # Frozen at creation so the correction log is self-contained.
+    snapshot_total_commission = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        editable=False,
+        help_text="Campaign total_commission at the time this correction was recorded.",
+    )
+    snapshot_paid_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        editable=False,
+        help_text="Campaign paid_amount at the time this correction was recorded.",
+    )
+    snapshot_outstanding_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        editable=False,
+        help_text="Campaign outstanding balance at the time this correction was recorded.",
+    )
+
+    class Meta(BaseModel.Meta):
+        verbose_name = "Campaign Correction"
+        verbose_name_plural = "Campaign Corrections"
+        ordering = ["-corrected_at", "-created_at"]
+
+    def __str__(self):
+        sign = "+" if self.amount_adjustment >= Decimal("0") else ""
+        return (
+            f"Correction {sign}₹{self.amount_adjustment} — "
+            f"{self.campaign} — {self.get_correction_reason_display()}"
+        )
+
+    def _capture_campaign_snapshot(self):
+        """Freeze campaign financial state at correction creation time."""
+        campaign = self.campaign
+        self.snapshot_total_commission = campaign.total_commission
+        self.snapshot_paid_amount = campaign.paid_amount
+        self.snapshot_outstanding_balance = campaign.outstanding_balance
+
+    def clean(self):
+        super().clean()
+        errors = {}
+
+        # Correction reason is required
+        if not self.correction_reason:
+            errors["correction_reason"] = "A correction reason is required."
+
+        # Notes are mandatory
+        if not self.notes or not self.notes.strip():
+            errors["notes"] = "Justification notes are required for every correction."
+
+        # amount_adjustment cannot be zero
+        if self.amount_adjustment is not None and self.amount_adjustment == Decimal("0"):
+            errors["amount_adjustment"] = "Adjustment amount cannot be zero."
+
+        # Campaign must be Settled or Locked to receive corrections
+        if self.campaign_id:
+            if self.campaign.status not in (
+                PostpaidCampaign.STATUS_SETTLED,
+                PostpaidCampaign.STATUS_LOCKED,
+            ):
+                errors["campaign"] = (
+                    "Corrections can only be applied to Settled or Locked campaigns. "
+                    f"Current status: {self.campaign.get_status_display()}"
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        """Append-only: creation allowed, updates blocked."""
+        if not self._state.adding:
+            raise ValueError(
+                "Campaign corrections are append-only and cannot be modified. "
+                "Record a new correction to reverse or amend a previous one."
+            )
+        self._capture_campaign_snapshot()
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """Corrections cannot be deleted — they form an immutable audit trail."""
+        raise ValidationError(
+            "Campaign corrections cannot be deleted. "
+            "They form a permanent audit trail."
+        )

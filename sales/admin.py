@@ -13,7 +13,7 @@ from django.contrib import admin, messages
 from django.db.models import Sum, F
 from django.utils.html import format_html
 
-from .models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment
+from .models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment, PostpaidCampaignCorrection
 
 
 def _fmt_currency(value):
@@ -230,192 +230,32 @@ class SalesEntryAdmin(admin.ModelAdmin):
         )
 
 
-# @admin.register(PostpaidEntry)
-class PostpaidEntryAdmin(admin.ModelAdmin):
+
+
+class CampaignCorrectionInline(admin.TabularInline):
     """
-    Postpaid entry management.
-
-    Tracks ROI payments for doctors in postpaid mode.
-    Amount is auto-computed from scoped SalesEntry data on save.
+    Read-only inline showing corrections applied to a campaign.
+    Displayed on the PostpaidCampaign change view.
     """
-
-    list_display = (
-        "doctor",
-        "medicine",
-        "payout_type",
-        "get_scope",
-        "roi_percentage",
-        "get_total_sales",
-        "get_amount",
-        "get_paid_amount",
-        "get_balance",
-        "payment_status",
-        "payment_date",
-        "created_at",
+    model = PostpaidCampaignCorrection
+    extra = 0
+    can_delete = False
+    show_change_link = True
+    readonly_fields = (
+        "corrected_at",
+        "corrected_by",
+        "correction_reason",
+        "amount_adjustment",
+        "notes",
+        "reference",
+        "snapshot_total_commission",
+        "snapshot_paid_amount",
+        "snapshot_outstanding_balance",
     )
-    list_filter = (
-        "payment_status",
-        "payout_type",
-        "payment_date",
-        "doctor__mode",
-    )
-    search_fields = (
-        "doctor__name",
-        "medicine__name",
-        "remarks",
-    )
-    autocomplete_fields = ("doctor", "medicine")
-    list_per_page = 30
-    readonly_fields = ("amount", "total_sales_value", "get_balance_display")
-    actions = ["mark_fully_paid"]
+    fields = readonly_fields
 
-    fieldsets = (
-        (
-            None,
-            {
-                "fields": ("doctor", "medicine", "roi_percentage"),
-            },
-        ),
-        (
-            "Payout Scope",
-            {
-                "fields": (
-                    "payout_type",
-                    "start_date",
-                    "end_date",
-                    "payout_month",
-                    "payout_year",
-                ),
-                "description": (
-                    "Choose the scope for amount calculation. "
-                    "<strong>Range</strong> requires start/end dates. "
-                    "<strong>Monthly</strong> requires month and year. "
-                    "<strong>Campaign</strong> uses all sales data."
-                ),
-            },
-        ),
-        (
-            "Calculated Amount",
-            {
-                "fields": ("total_sales_value", "amount"),
-                "description": (
-                    "Auto-computed on creation from scoped sales × ROI%. "
-                    "Frozen after first save. "
-                    "<strong style='color:#c62828;'>"
-                    "⚠️ Recalculation has been disabled (ARCH-2A financial safety rule)."
-                    "</strong>"
-                ),
-            },
-        ),
-        (
-            "Payment",
-            {
-                "fields": (
-                    "payment_status",
-                    "paid_amount",
-                    "get_balance_display",
-                    "payment_date",
-                ),
-            },
-        ),
-        (
-            "Remarks",
-            {
-                "fields": ("remarks",),
-                "classes": ("collapse",),
-            },
-        ),
-    )
-
-    @admin.display(description="Amount (₹)")
-    def get_amount(self, obj):
-        return f"₹{obj.amount:,.2f}"
-
-    @admin.display(description="Paid (₹)")
-    def get_paid_amount(self, obj):
-        return f"₹{obj.paid_amount:,.2f}"
-
-    @admin.display(description="Balance (₹)")
-    def get_balance(self, obj):
-        return f"₹{obj.balance_amount:,.2f}"
-
-    @admin.display(description="Balance")
-    def get_balance_display(self, obj):
-        """Read-only balance field for the detail form."""
-        return f"₹{obj.balance_amount:,.2f}"
-
-    @admin.display(description="Sales Total (₹)")
-    def get_total_sales(self, obj):
-        return f"₹{obj.total_sales_value:,.2f}"
-
-    @admin.display(description="Scope")
-    def get_scope(self, obj):
-        return obj.scope_display
-
-    def save_model(self, request, obj, form, change):
-        """
-        Auto-sync paid_amount when payment_status is changed via admin.
-
-        If an admin sets status to 'paid' in the detail form, we
-        automatically set paid_amount = amount to keep them consistent.
-        This prevents the data inconsistency where status='paid' but
-        paid_amount is still 0.
-        """
-        from core.constants import PAYMENT_STATUS_PAID, PAYMENT_STATUS_UNPAID
-
-        if change and "payment_status" in form.changed_data:
-            if obj.payment_status == PAYMENT_STATUS_PAID:
-                obj.paid_amount = obj.amount
-                if not obj.payment_date:
-                    from datetime import date
-                    obj.payment_date = date.today()
-            elif obj.payment_status == PAYMENT_STATUS_UNPAID:
-                obj.paid_amount = 0
-                obj.payment_date = None
-
-        super().save_model(request, obj, form, change)
-
-    @admin.action(description="⚠️ Recalculate amount [DISABLED — ARCH-2A financial safety]")
-    def recalculate_amounts(self, request, queryset):
-        """
-        ARCH-2A: This action has been DISABLED.
-
-        Recalculating PostpaidEntry amounts using live medicine.pts would
-        overwrite frozen historical financial records and violate Golden Rule #1
-        (historical values must never change).
-
-        If a genuine correction is needed, contact a superuser to perform
-        a supervised, documented data correction.
-        """
-        self.message_user(
-            request,
-            (
-                "⚠️ Recalculation is disabled (ARCH-2A financial safety rule). "
-                "Postpaid amounts are frozen at creation and must not be recalculated "
-                "using current medicine prices. Contact a superuser for data corrections."
-            ),
-            level=messages.ERROR,
-        )
-
-    @admin.action(description="Mark selected entries as fully paid")
-    def mark_fully_paid(self, request, queryset):
-        """Admin action to mark entries as fully paid."""
-        from datetime import date
-        from core.constants import PAYMENT_STATUS_PAID
-
-        unpaid = queryset.exclude(payment_status=PAYMENT_STATUS_PAID)
-        count = 0
-        for entry in unpaid:
-            PostpaidEntry.objects.filter(pk=entry.pk).update(
-                payment_status=PAYMENT_STATUS_PAID,
-                paid_amount=entry.amount,
-                payment_date=date.today(),
-            )
-            count += 1
-        self.message_user(
-            request,
-            f"Marked {count} entr{'y' if count == 1 else 'ies'} as fully paid.",
-        )
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PostpaidCampaign)
@@ -435,6 +275,7 @@ class PostpaidCampaignAdmin(admin.ModelAdmin):
     list_filter = ("status", "month", "year", "doctor")
     search_fields = ("doctor__name",)
     readonly_fields = ("total_sales_value", "total_commission", "paid_amount", "locked_at", "settled_at")
+    inlines = [CampaignCorrectionInline]
 
     @admin.display(description="Total Sales")
     def get_total_sales(self, obj):
@@ -521,3 +362,115 @@ class CampaignPaymentAdmin(admin.ModelAdmin):
             del actions['delete_selected']
         return actions
 
+
+@admin.register(PostpaidCampaignCorrection)
+class PostpaidCampaignCorrectionAdmin(admin.ModelAdmin):
+    """
+    Read-only audit view for campaign corrections.
+
+    MR-8.0: Corrections are append-only. No delete, no bulk-delete.
+    New corrections may be created here for Settled or Locked campaigns.
+    """
+
+    list_display = (
+        "campaign",
+        "corrected_at",
+        "corrected_by",
+        "correction_reason",
+        "get_adjustment",
+        "reference",
+        "created_at",
+    )
+    list_filter = (
+        "correction_reason",
+        "corrected_at",
+        "campaign__status",
+    )
+    search_fields = (
+        "campaign__doctor__name",
+        "notes",
+        "reference",
+        "corrected_by__username",
+    )
+    readonly_fields = (
+        "corrected_at",
+        "snapshot_total_commission",
+        "snapshot_paid_amount",
+        "snapshot_outstanding_balance",
+        "created_at",
+        "updated_at",
+    )
+    autocomplete_fields = ("campaign",)
+    date_hierarchy = "corrected_at"
+
+    fieldsets = (
+        (
+            "Campaign",
+            {
+                "fields": ("campaign",),
+            },
+        ),
+        (
+            "Correction Details",
+            {
+                "fields": (
+                    "correction_reason",
+                    "amount_adjustment",
+                    "notes",
+                    "reference",
+                ),
+            },
+        ),
+        (
+            "Authorisation",
+            {
+                "fields": ("corrected_by", "corrected_at"),
+            },
+        ),
+        (
+            "Campaign Snapshot at Correction Time",
+            {
+                "fields": (
+                    "snapshot_total_commission",
+                    "snapshot_paid_amount",
+                    "snapshot_outstanding_balance",
+                ),
+                "description": (
+                    "These values were frozen from the campaign at the moment this "
+                    "correction was recorded. They cannot be changed."
+                ),
+            },
+        ),
+        (
+            "System",
+            {
+                "fields": ("created_at", "updated_at"),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    @admin.display(description="Adjustment (\u20b9)")
+    def get_adjustment(self, obj):
+        sign = "+" if obj.amount_adjustment >= 0 else ""
+        return f"{sign}\u20b9{obj.amount_adjustment:,.2f}"
+
+    def save_model(self, request, obj, form, change):
+        """Capture corrected_by from the logged-in admin on creation."""
+        if not change and not obj.corrected_by_id:
+            obj.corrected_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):
+        """Corrections cannot be deleted from the admin."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Corrections cannot be edited after creation."""
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        return actions

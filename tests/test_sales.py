@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 
 from doctors.models import Doctor, DoctorMedicine, Investment
 from medicines.models import Medicine
-from sales.models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment
+from sales.models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment, PostpaidCampaignCorrection
 from doctors.services.doctor_service import (
     get_dashboard_alerts,
     get_dashboard_queryset,
@@ -807,3 +807,330 @@ class SettlementFoundationTests(TestCase):
         campaign.refresh_from_db()
         self.assertEqual(campaign.sales_entries.count(), 0)
         self.assertEqual(campaign.total_sales_value, Decimal("0.00"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MR-8.0: Audit & Correction Layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AuditCorrectionLayerTests(TestCase):
+    """
+    Tests for MR-8.0 objectives:
+    A. Legacy purge verification (PostpaidEntry gone).
+    B. Ledger protection for Locked/Settled campaigns.
+    C. PostpaidCampaignCorrection model correctness.
+    D. Admin integration asserted via model-layer rules.
+    """
+
+    def setUp(self):
+        self.rep = User.objects.create_user(
+            username="mr8_rep", password="pwd", role="rep"
+        )
+        self.admin = User.objects.create_user(
+            username="mr8_admin", password="pwd", role="admin"
+        )
+        self.doctor = Doctor.objects.create(
+            name="Dr. MR8",
+            mode="postpaid",
+            assigned_rep=self.rep,
+            is_active=True,
+        )
+        self.medicine = Medicine.objects.create(
+            name="MR8 Med",
+            pts=Decimal("100.00"),
+            ptr=Decimal("90.00"),
+            mrp=Decimal("120.00"),
+            is_active=True,
+        )
+        DoctorMedicine.objects.create(doctor=self.doctor, medicine=self.medicine)
+
+        # Build a settled campaign for most tests
+        self.campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=5,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_SETTLED,
+            total_sales_value=Decimal("1000.00"),
+            total_commission=Decimal("100.00"),
+            paid_amount=Decimal("100.00"),
+        )
+
+    # ── A. Legacy purge ────────────────────────────────────────────────────
+
+    def test_postpaid_entry_model_does_not_exist(self):
+        """
+        PostpaidEntry must not be importable from sales.models.
+        The class was physically removed in MR-8.0.
+        """
+        import sales.models as sm
+        self.assertFalse(
+            hasattr(sm, "PostpaidEntry"),
+            "PostpaidEntry should have been removed from sales.models in MR-8.0",
+        )
+
+    # ── B. Ledger protection ───────────────────────────────────────────────
+
+    def test_settled_campaign_cannot_be_deleted(self):
+        """Settled campaigns must raise ValidationError on delete."""
+        with self.assertRaises(ValidationError):
+            self.campaign.delete()
+
+    def test_locked_campaign_cannot_be_deleted(self):
+        """Locked campaigns must raise ValidationError on delete."""
+        locked = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=4,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_LOCKED,
+            total_sales_value=Decimal("500.00"),
+            total_commission=Decimal("50.00"),
+            paid_amount=Decimal("50.00"),
+        )
+        with self.assertRaises(ValidationError):
+            locked.delete()
+
+    def test_partial_campaign_cannot_be_deleted(self):
+        """Partial campaigns must also raise ValidationError on delete."""
+        partial = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=3,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_PARTIAL,
+            total_sales_value=Decimal("500.00"),
+            total_commission=Decimal("50.00"),
+            paid_amount=Decimal("25.00"),
+        )
+        with self.assertRaises(ValidationError):
+            partial.delete()
+
+    def test_open_campaign_can_be_deleted(self):
+        """Open campaigns have no financial commitment — deletion is allowed."""
+        open_campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=2,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_OPEN,
+        )
+        pk = open_campaign.pk
+        open_campaign.delete()
+        self.assertFalse(
+            PostpaidCampaign.objects.filter(pk=pk).exists()
+        )
+
+    def test_sale_entry_on_settled_campaign_is_blocked(self):
+        """
+        PostpaidSaleEntry cannot be added to a Settled campaign.
+        """
+        with self.assertRaises(ValidationError):
+            PostpaidSaleEntry.objects.create(
+                campaign=self.campaign,
+                medicine=self.medicine,
+                quantity=5,
+                entry_date=date.today(),
+                rep=self.rep,
+            )
+
+    def test_campaign_payment_on_settled_campaign_is_blocked(self):
+        """
+        CampaignPayments can only be made on Partial campaigns;
+        a Settled campaign must reject new payments.
+        """
+        with self.assertRaises(ValidationError):
+            CampaignPayment.objects.create(
+                campaign=self.campaign,
+                amount=Decimal("10.00"),
+                payment_date=date.today(),
+            )
+
+    def test_locked_campaign_is_immutable(self):
+        """
+        A Locked campaign must raise ValidationError on any attempted edit.
+        """
+        locked = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=6,
+            year=2025,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_LOCKED,
+        )
+        locked.settlement_notes = "Attempting to mutate"
+        with self.assertRaises(ValidationError):
+            locked.save()
+
+    # ── C. Correction model ────────────────────────────────────────────────
+
+    def test_correction_creation_on_settled_campaign(self):
+        """
+        A correction should be creatable on a Settled campaign with all
+        required fields, and snapshot values should be captured correctly.
+        """
+        correction = PostpaidCampaignCorrection(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_WRITE_OFF,
+            amount_adjustment=Decimal("-50.00"),
+            notes="Writing off the balance as approved by management.",
+            reference="MGMT-2026-001",
+        )
+        correction.save()
+
+        self.assertIsNotNone(correction.pk)
+        self.assertEqual(correction.snapshot_total_commission, Decimal("100.00"))
+        self.assertEqual(correction.snapshot_paid_amount, Decimal("100.00"))
+        self.assertEqual(correction.snapshot_outstanding_balance, Decimal("0.00"))
+
+    def test_correction_on_locked_campaign(self):
+        """Corrections should also work on Locked campaigns."""
+        locked = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=1,
+            year=2025,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_LOCKED,
+            total_sales_value=Decimal("2000.00"),
+            total_commission=Decimal("200.00"),
+            paid_amount=Decimal("180.00"),
+        )
+        correction = PostpaidCampaignCorrection(
+            campaign=locked,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_PAYMENT_MISSED,
+            amount_adjustment=Decimal("20.00"),
+            notes="Payment of 20 was missed in ledger.",
+        )
+        correction.save()
+        self.assertIsNotNone(correction.pk)
+        # Snapshot should reflect locked campaign state
+        self.assertEqual(correction.snapshot_outstanding_balance, Decimal("20.00"))
+
+    def test_correction_on_open_campaign_is_blocked(self):
+        """
+        Corrections are only permitted on Settled or Locked campaigns.
+        An Open campaign must be rejected.
+        """
+        open_campaign = PostpaidCampaign.objects.create(
+            doctor=self.doctor,
+            month=7,
+            year=2026,
+            commission_percentage=Decimal("10.00"),
+            status=PostpaidCampaign.STATUS_OPEN,
+        )
+        correction = PostpaidCampaignCorrection(
+            campaign=open_campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_OTHER,
+            amount_adjustment=Decimal("-10.00"),
+            notes="Invalid correction attempt.",
+        )
+        with self.assertRaises(ValidationError):
+            correction.save()
+
+    def test_correction_is_append_only(self):
+        """
+        Calling save() on an existing correction must raise ValueError.
+        Corrections must never be mutated after creation.
+        """
+        correction = PostpaidCampaignCorrection.objects.create(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_DATA_CORRECTION,
+            amount_adjustment=Decimal("-5.00"),
+            notes="Test append-only enforcement.",
+        )
+        correction.notes = "Trying to change notes after creation"
+        with self.assertRaises(ValueError):
+            correction.save()
+
+    def test_correction_cannot_be_deleted(self):
+        """
+        delete() on a correction must raise ValidationError.
+        Corrections form a permanent audit trail.
+        """
+        correction = PostpaidCampaignCorrection.objects.create(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_MANAGEMENT_APPROVAL,
+            amount_adjustment=Decimal("-20.00"),
+            notes="Test delete protection.",
+        )
+        with self.assertRaises(ValidationError):
+            correction.delete()
+        # Verify record still exists in DB
+        self.assertTrue(
+            PostpaidCampaignCorrection.objects.filter(pk=correction.pk).exists()
+        )
+
+    def test_correction_requires_notes(self):
+        """A correction with empty notes must fail validation."""
+        correction = PostpaidCampaignCorrection(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_OTHER,
+            amount_adjustment=Decimal("-5.00"),
+            notes="   ",  # whitespace only
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            correction.save()
+        self.assertIn("notes", ctx.exception.message_dict)
+
+    def test_correction_zero_adjustment_is_blocked(self):
+        """A zero adjustment amount must fail validation."""
+        correction = PostpaidCampaignCorrection(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_OTHER,
+            amount_adjustment=Decimal("0.00"),
+            notes="Zero adjustment test.",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            correction.save()
+        self.assertIn("amount_adjustment", ctx.exception.message_dict)
+
+    def test_correction_snapshot_independence(self):
+        """
+        The snapshot on a correction must not change even if the campaign
+        totals are updated later.
+        """
+        correction = PostpaidCampaignCorrection.objects.create(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_DATA_CORRECTION,
+            amount_adjustment=Decimal("-10.00"),
+            notes="Snapshot independence test.",
+        )
+        original_commission_snapshot = correction.snapshot_total_commission
+
+        # Directly mutate campaign (bypassing guards for test purposes)
+        PostpaidCampaign.objects.filter(pk=self.campaign.pk).update(
+            total_commission=Decimal("999.00")
+        )
+
+        # Correction snapshot must be unchanged
+        correction.refresh_from_db()
+        self.assertEqual(
+            correction.snapshot_total_commission,
+            original_commission_snapshot,
+        )
+
+    def test_campaign_with_corrections_is_protected_from_deletion(self):
+        """
+        A Settled campaign that has corrections cannot be deleted
+        (PROTECT FK on PostpaidCampaignCorrection.campaign).
+        Even if we bypass the model-level delete guard, the DB constraint
+        would prevent it — but here we test that the model guard fires first.
+        """
+        PostpaidCampaignCorrection.objects.create(
+            campaign=self.campaign,
+            corrected_by=self.admin,
+            correction_reason=PostpaidCampaignCorrection.REASON_WRITE_OFF,
+            amount_adjustment=Decimal("-50.00"),
+            notes="Test FK protection.",
+        )
+        # Model-level guard fires before FK cascade
+        with self.assertRaises(ValidationError):
+            self.campaign.delete()
