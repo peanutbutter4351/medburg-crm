@@ -131,8 +131,8 @@ class SalesEntry(BaseModel):
     )
 
     class Meta(BaseModel.Meta):
-        verbose_name = "Sales Entry"
-        verbose_name_plural = "Sales Entries"
+        verbose_name = "Prepaid Sale"
+        verbose_name_plural = "Prepaid Sales"
         ordering = ["-entry_date", "-created_at"]
 
     def __str__(self):
@@ -587,24 +587,27 @@ class PostpaidEntry(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PostpaidCampaign(BaseModel):
+    STATUS_AWAITING_COMMISSION = 'awaiting_commission'
     STATUS_OPEN = 'open'
-    STATUS_LOCKED = 'locked'
     STATUS_PARTIAL = 'partial'
     STATUS_SETTLED = 'settled'
+    STATUS_LOCKED = 'locked'
+    
     STATUS_CHOICES = [
+        (STATUS_AWAITING_COMMISSION, 'Awaiting Commission'),
         (STATUS_OPEN, 'Open'),
-        (STATUS_LOCKED, 'Locked'),
         (STATUS_PARTIAL, 'Partial'),
         (STATUS_SETTLED, 'Settled'),
+        (STATUS_LOCKED, 'Locked'),
     ]
 
     doctor = models.ForeignKey('doctors.Doctor', on_delete=models.CASCADE, related_name='postpaid_campaigns')
     month = models.PositiveSmallIntegerField()
     year = models.PositiveSmallIntegerField()
     
-    commission_percentage = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('0.00'))
+    commission_percentage = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_AWAITING_COMMISSION, db_index=True)
     
     total_sales_value = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     total_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -623,6 +626,34 @@ class PostpaidCampaign(BaseModel):
 
     def __str__(self):
         return f"{self.doctor.name} - {self.month}/{self.year} ({self.get_status_display()})"
+
+    @property
+    def outstanding_balance(self):
+        return self.total_commission - self.paid_amount
+
+    def clean(self):
+        super().clean()
+        if self.pk:
+            try:
+                original = PostpaidCampaign.objects.get(pk=self.pk)
+                # Locked campaigns: nothing is editable
+                if original.status == self.STATUS_LOCKED:
+                    raise ValidationError("Locked campaigns cannot be edited.")
+                
+                # If status transitions past open, block changing commission_percentage
+                if original.status in (self.STATUS_PARTIAL, self.STATUS_SETTLED, self.STATUS_LOCKED):
+                    if self.commission_percentage != original.commission_percentage:
+                        raise ValidationError("Commission percentage is locked and cannot be edited once payments have started.")
+            except PostpaidCampaign.DoesNotExist:
+                pass
+
+    def save(self, *args, **kwargs):
+        # Auto-transition status from awaiting_commission to open if commission is set
+        if self.status == self.STATUS_AWAITING_COMMISSION and self.commission_percentage is not None:
+            self.status = self.STATUS_OPEN
+            
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     def calculate_totals(self):
         """
@@ -646,23 +677,59 @@ class PostpaidCampaign(BaseModel):
         agg = self.payments.aggregate(total=Sum('amount'))
         self.paid_amount = agg['total'] or Decimal('0.00')
 
-        if self.paid_amount >= self.total_commission and self.total_commission > Decimal('0'):
-            new_status = self.STATUS_SETTLED
-        elif self.paid_amount > Decimal('0') and self.paid_amount < self.total_commission:
-            new_status = self.STATUS_PARTIAL
-        elif self.status not in (self.STATUS_OPEN, self.STATUS_LOCKED):
-            # Fallback if payments were somehow removed
-            new_status = self.STATUS_LOCKED
-        else:
-            new_status = self.status
+        self.calculate_totals()
+        
+        # Locked status is a final state set manually by admin; do not auto-demote or auto-promote from locked
+        if self.status == self.STATUS_LOCKED:
+            self.save(update_fields=['paid_amount', 'total_sales_value', 'total_commission', 'updated_at'])
+            return
 
-        if new_status == self.STATUS_SETTLED and not self.settled_at:
-            self.settled_at = timezone.now()
-            
+        # Settled status: do not auto-demote or auto-promote from settled
+        if self.status == self.STATUS_SETTLED:
+            self.save(update_fields=['paid_amount', 'total_sales_value', 'total_commission', 'updated_at'])
+            return
+
+        new_status = self.status
+        
+        if self.status == self.STATUS_AWAITING_COMMISSION:
+            if self.commission_percentage is not None:
+                new_status = self.STATUS_OPEN
+        elif self.status == self.STATUS_OPEN:
+            # Open stays open until manually advanced to Partial
+            pass
+        elif self.status == self.STATUS_PARTIAL:
+            if self.paid_amount >= self.total_commission and self.total_commission > Decimal('0'):
+                new_status = self.STATUS_SETTLED
+                if not self.settled_at:
+                    self.settled_at = timezone.now()
+
         if self.status != new_status:
             self.status = new_status
+
+        self.save(update_fields=['paid_amount', 'total_sales_value', 'total_commission', 'status', 'settled_at', 'updated_at'])
+
+    def update_commission_percentage(self, new_percentage):
+        """
+        Update commission percentage for this campaign and recalculate all linked sales entries' commissions.
+        Can only be done in awaiting_commission or open status.
+        """
+        if self.status not in (self.STATUS_AWAITING_COMMISSION, self.STATUS_OPEN):
+            raise ValidationError("Commission percentage can only be edited when status is Awaiting Commission or Open.")
+        
+        self.commission_percentage = new_percentage
+        if self.status == self.STATUS_AWAITING_COMMISSION and new_percentage is not None:
+            self.status = self.STATUS_OPEN
             
-        self.save(update_fields=['paid_amount', 'status', 'settled_at', 'updated_at'])
+        self.save(update_fields=['commission_percentage', 'status', 'updated_at'])
+        
+        # Update all linked sales entries' commissions
+        for sale in self.sales_entries.all():
+            sale.commission_percentage_at_sale = new_percentage or Decimal('0.00')
+            sale.commission_at_sale = sale.value_at_sale * (sale.commission_percentage_at_sale / Decimal('100.0'))
+            sale.save(update_fields=['commission_percentage_at_sale', 'commission_at_sale', 'updated_at'])
+            
+        self.calculate_totals()
+        self.save(update_fields=['total_sales_value', 'total_commission', 'updated_at'])
 
 
 class PostpaidSaleEntry(BaseModel):
@@ -681,8 +748,8 @@ class PostpaidSaleEntry(BaseModel):
     notes = models.TextField(blank=True)
 
     class Meta(BaseModel.Meta):
-        verbose_name = "Postpaid Sale Entry"
-        verbose_name_plural = "Postpaid Sale Entries"
+        verbose_name = "Postpaid Sale"
+        verbose_name_plural = "Postpaid Sales"
         ordering = ['-entry_date', '-created_at']
 
     def __str__(self):
@@ -691,6 +758,14 @@ class PostpaidSaleEntry(BaseModel):
     def clean(self):
         super().clean()
         if self.campaign_id:
+            # Check campaign status. Sales blocked if status is partial, settled, or locked
+            if self.campaign.status in (
+                PostpaidCampaign.STATUS_PARTIAL,
+                PostpaidCampaign.STATUS_SETTLED,
+                PostpaidCampaign.STATUS_LOCKED,
+            ):
+                raise ValidationError({"campaign": "Cannot add or modify sales for a campaign that is partial, settled, or locked."})
+
             # Check if this is a new attachment or reassignment to a campaign
             campaign_changed = True
             if self.pk:
@@ -700,18 +775,17 @@ class PostpaidSaleEntry(BaseModel):
                 except PostpaidSaleEntry.DoesNotExist:
                     pass
             
-            if self._state.adding or campaign_changed:
-                if self.campaign.status in (
-                    PostpaidCampaign.STATUS_LOCKED,
-                    PostpaidCampaign.STATUS_PARTIAL,
-                    PostpaidCampaign.STATUS_SETTLED,
-                ):
-                    raise ValidationError({"campaign": "Cannot attach sales to a locked, partial, or settled campaign."})
+            if (self._state.adding or campaign_changed) and self.campaign.status in (
+                PostpaidCampaign.STATUS_PARTIAL,
+                PostpaidCampaign.STATUS_SETTLED,
+                PostpaidCampaign.STATUS_LOCKED,
+            ):
+                raise ValidationError({"campaign": "Cannot attach sales to a locked, partial, or settled campaign."})
 
     def _capture_snapshot(self):
         self.pts_at_sale = self.medicine.pts
         self.value_at_sale = Decimal(self.quantity) * self.pts_at_sale
-        self.commission_percentage_at_sale = self.campaign.commission_percentage
+        self.commission_percentage_at_sale = self.campaign.commission_percentage or Decimal('0.00')
         self.commission_at_sale = self.value_at_sale * (self.commission_percentage_at_sale / Decimal('100.0'))
 
     def save(self, *args, **kwargs):
@@ -749,6 +823,17 @@ class CampaignPayment(BaseModel):
             raise ValidationError("Ledger entries are append-only and cannot be modified.")
         if self.amount is not None and self.amount <= Decimal('0'):
             raise ValidationError({"amount": "Payment amount must be positive."})
+        
+        if self.campaign_id:
+            # Payments allowed only when campaign is partial.
+            # Blocked when awaiting_commission, open, settled, or locked.
+            if self.campaign.status != PostpaidCampaign.STATUS_PARTIAL:
+                raise ValidationError({
+                    "campaign": (
+                        f"Payments can only be recorded for Partial campaigns. "
+                        f"Current status: {self.campaign.get_status_display()}"
+                    )
+                })
 
     def save(self, *args, **kwargs):
         if not self._state.adding:

@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Manage Campaign — Medburg CRM{% endblock %}
+
+{% block page_title %}Campaign Management{% endblock %}
+{% block page_subtitle %}Configure and manage campaign payments and lifecycle{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Left Column: Details & Actions -->
+    <div class="col-12 col-lg-5 mb-4">
+        <!-- Campaign Info -->
+        <div class="data-card mb-4">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-info-circle"></i> Campaign Details
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Doctor</span>
+                    <strong>{{ campaign.doctor.name }}</strong>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Period</span>
+                    <span class="badge bg-secondary" style="font-size: 0.9rem;">{{ campaign.month|stringformat:"02d" }}/{{ campaign.year }}</span>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Status</span>
+                    <div>
+                        {% if campaign.status == "awaiting_commission" %}
+                        <span class="crm-badge pending">Awaiting Commission</span>
+                        {% elif campaign.status == "open" %}
+                        <span class="crm-badge in-progress">Open</span>
+                        {% elif campaign.status == "partial" %}
+                        <span class="crm-badge in-progress" style="background: rgba(59, 130, 246, 0.15); color: #1d4ed8;">Partial</span>
+                        {% elif campaign.status == "settled" %}
+                        <span class="crm-badge completed">Settled</span>
+                        {% elif campaign.status == "locked" %}
+                        <span class="crm-badge no-investment" style="background: rgba(15, 23, 42, 0.1); color: #0f172a;"><i class="bi bi-lock-fill"></i> Locked</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <hr style="border-color: var(--border-color);">
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Commission Rate</span>
+                    <span class="fw-semibold">
+                        {% if campaign.commission_percentage is not None %}{{ campaign.commission_percentage }}%{% else %}<span class="text-warning">Not Set</span>{% endif %}
+                    </span>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Total Sales Value</span>
+                    <span class="fw-semibold">₹{{ campaign.total_sales_value|floatformat:2 }}</span>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Total Commission</span>
+                    <span class="fw-semibold text-positive">₹{{ campaign.total_commission|floatformat:2 }}</span>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Total Paid</span>
+                    <span class="fw-semibold">₹{{ campaign.paid_amount|floatformat:2 }}</span>
+                </div>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <span class="text-crm-muted">Outstanding Balance</span>
+                    <span class="fw-bold {% if campaign.outstanding_balance > 0 %}text-negative{% else %}text-positive{% endif %}">₹{{ campaign.outstanding_balance|floatformat:2 }}</span>
+                </div>
+                {% if campaign.settled_at or campaign.locked_at %}
+                <hr style="border-color: var(--border-color);">
+                {% if campaign.settled_at %}
+                <div class="mb-2 d-flex justify-content-between align-items-center small text-crm-muted">
+                    <span>Settled At</span>
+                    <span>{{ campaign.settled_at }}</span>
+                </div>
+                {% endif %}
+                {% if campaign.locked_at %}
+                <div class="mb-2 d-flex justify-content-between align-items-center small text-crm-muted">
+                    <span>Locked At</span>
+                    <span>{{ campaign.locked_at }}</span>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Campaign Action panel -->
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-gear-fill"></i> Campaign Actions
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                
+                <!-- 1. Configure Commission Form -->
+                {% if campaign.status == "awaiting_commission" or campaign.status == "open" %}
+                <form method="post" action="{% url 'sales:update_commission' campaign_id=campaign.id %}" class="crm-form mb-4">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Configure Commission Percentage</label>
+                        {{ commission_form.commission_percentage }}
+                    </div>
+                    <button type="submit" class="btn-crm-primary w-100 justify-content-center">
+                        <i class="bi bi-save"></i> Save Commission Rate
+                    </button>
+                </form>
+                {% endif %}
+
+                <!-- 2. Advance to Partial -->
+                {% if campaign.status == "open" %}
+                <div class="mb-4">
+                    <label class="form-label d-block">Payments Lifecycle</label>
+                    <form method="post" action="{% url 'sales:advance_status' campaign_id=campaign.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="status" value="partial">
+                        <button type="submit" class="btn-crm-secondary w-100 justify-content-center">
+                            <i class="bi bi-play-circle"></i> Advance to Partial (Open Payments)
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <!-- 3. Record Payment Form -->
+                {% if campaign.status == "partial" %}
+                <form method="post" action="{% url 'sales:record_payment' campaign_id=campaign.id %}" class="crm-form mb-4">
+                    {% csrf_token %}
+                    <h6 class="fw-bold mb-3"><i class="bi bi-cash-coin me-1"></i> Record Payment</h6>
+                    <div class="mb-3">
+                        <label class="form-label">Payment Amount</label>
+                        {{ payment_form.amount }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Payment Date</label>
+                        {{ payment_form.payment_date }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Transaction Reference</label>
+                        {{ payment_form.reference }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        {{ payment_form.notes }}
+                    </div>
+                    <button type="submit" class="btn-crm-primary w-100 justify-content-center">
+                        <i class="bi bi-plus-circle"></i> Record Payment Log
+                    </button>
+                </form>
+                {% endif %}
+
+                <!-- 4. Settle / Lock Actions -->
+                {% if campaign.status == "partial" or campaign.status == "settled" %}
+                <div class="d-flex flex-column gap-2">
+                    <label class="form-label d-block m-0">Lifecycle Controls</label>
+                    
+                    {% if campaign.status == "partial" %}
+                    <form method="post" action="{% url 'sales:advance_status' campaign_id=campaign.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="status" value="settled">
+                        <button type="submit" class="btn-crm-secondary w-100 justify-content-center">
+                            <i class="bi bi-check-all"></i> Manually Settle Campaign
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    <form method="post" action="{% url 'sales:advance_status' campaign_id=campaign.id %}" onsubmit="return confirm('Are you sure you want to lock this campaign? This action is permanent and freezes all changes.');">
+                        {% csrf_token %}
+                        <input type="hidden" name="status" value="locked">
+                        <button type="submit" class="btn-crm-outline w-100 justify-content-center text-danger border-danger">
+                            <i class="bi bi-lock-fill"></i> Lock Campaign (Freeze Archive)
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <!-- 5. Display Blocked/Locked Messages -->
+                {% if campaign.status == "settled" %}
+                <div class="alert alert-success m-0" style="border-radius: var(--radius-sm); border: none;">
+                    <i class="bi bi-check-circle-fill"></i> Campaign is Settled. Payments are blocked.
+                </div>
+                {% elif campaign.status == "locked" %}
+                <div class="alert alert-dark m-0" style="border-radius: var(--radius-sm); border: none;">
+                    <i class="bi bi-lock-fill"></i> Campaign is Locked and archived. All modifications are disabled.
+                </div>
+                {% elif campaign.status == "awaiting_commission" %}
+                <div class="alert alert-warning m-0" style="border-radius: var(--radius-sm); border: none;">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Commission must be set to transition to Open status and begin payments.
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Ledgers -->
+    <div class="col-12 col-lg-7 mb-4">
+        <!-- Payments Ledger -->
+        <div class="data-card mb-4">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-journal-text"></i> Payments Ledger
+                    <span class="count-badge bg-crm-success">{{ payments|length }}</span>
+                </h5>
+            </div>
+            <div class="data-card-body">
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Reference</th>
+                                <th class="text-right">Amount</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pay in payments %}
+                            <tr>
+                                <td>{{ pay.payment_date }}</td>
+                                <td><strong>{{ pay.reference|default:"—" }}</strong></td>
+                                <td class="text-right value-cell text-positive">₹{{ pay.amount|floatformat:2 }}</td>
+                                <td><small class="text-crm-muted">{{ pay.notes|default:"—" }}</small></td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted" style="padding: 40px 20px;">
+                                    No payment records found.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sales Entries -->
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-capsule"></i> Campaign Sales Entries
+                    <span class="count-badge">{{ sales|length }}</span>
+                </h5>
+            </div>
+            <div class="data-card-body">
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Medicine</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-right">Price</th>
+                                <th class="text-right">Sales Value</th>
+                                <th class="text-right">Commission</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in sales %}
+                            <tr>
+                                <td>{{ entry.entry_date }}</td>
+                                <td>
+                                    <strong>{{ entry.medicine.name }}</strong>
+                                    {% if entry.rep %}
+                                    <br><small class="text-crm-muted">Rep: {{ entry.rep.get_full_name|default:entry.rep.username }}</small>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">{{ entry.quantity }}</td>
+                                <td class="text-right value-cell">₹{{ entry.pts_at_sale|floatformat:2 }}</td>
+                                <td class="text-right value-cell">₹{{ entry.value_at_sale|floatformat:2 }}</td>
+                                <td class="text-right value-cell text-positive">
+                                    ₹{{ entry.commission_at_sale|floatformat:2 }}
+                                    <br><small class="text-crm-muted">({{ entry.commission_percentage_at_sale }}%)</small>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted" style="padding: 40px 20px;">
+                                    No sales entries recorded for this campaign period.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,157 +1,95 @@
 """
-Postpaid entry service layer.
-
-Keeps view logic thin — all query and aggregation logic lives here.
+Postpaid campaign service layer.
+Manages queries, aggregations, and business logic for PostpaidCampaign and CampaignPayment.
 """
 
 from decimal import Decimal
-
-from django.db.models import Sum, Q, Value, DecimalField
+from django.db.models import Sum, Q, F, Value, DecimalField
 from django.db.models.functions import Coalesce
 
-from core.constants import (
-    PAYMENT_STATUS_PAID,
-    PAYMENT_STATUS_PARTIAL,
-    PAYMENT_STATUS_UNPAID,
-)
-from sales.models import PostpaidEntry
+from sales.models import PostpaidCampaign
+from doctors.models import Doctor
 
 
-def get_postpaid_queryset(*, doctor_id=None, status=None, search=None):
+def get_campaign_queryset(*, month=None, year=None, doctor_id=None, status=None, search=None):
     """
-    Return a PostpaidEntry queryset with optional filters applied.
-
-    Filters
-    ───────
-    doctor_id  – restrict to a specific doctor
-    status     – "paid", "partial", or "unpaid"
-    search     – free-text search on doctor name or medicine name
+    Return a PostpaidCampaign queryset with filters applied.
     """
     qs = (
-        PostpaidEntry.objects
-        .select_related("doctor", "medicine")
-        .order_by("-created_at")
+        PostpaidCampaign.objects
+        .select_related("doctor")
+        .prefetch_related("payments", "sales_entries")
+        .order_by("-year", "-month", "doctor__name")
     )
 
+    if month:
+        qs = qs.filter(month=month)
+    if year:
+        qs = qs.filter(year=year)
     if doctor_id:
         qs = qs.filter(doctor_id=doctor_id)
-
-    if status in (PAYMENT_STATUS_PAID, PAYMENT_STATUS_PARTIAL, PAYMENT_STATUS_UNPAID):
-        qs = qs.filter(payment_status=status)
-
+    if status:
+        qs = qs.filter(status=status)
     if search:
         qs = qs.filter(
-            Q(doctor__name__icontains=search)
-            | Q(medicine__name__icontains=search)
-            | Q(remarks__icontains=search)
+            Q(doctor__name__icontains=search) |
+            Q(doctor__hospital__icontains=search)
         )
 
     return qs
 
 
-def get_postpaid_summary(queryset):
+def get_campaign_summary(queryset):
     """
-    Aggregate totals across the filtered PostpaidEntry queryset
-    for the summary cards.
-
-    Now tracks three states: paid, partial, unpaid — and sums
-    actual paid_amount alongside computed amount.
+    Aggregate totals across the filtered PostpaidCampaign queryset.
     """
     agg = queryset.aggregate(
-        total_amount=Coalesce(
-            Sum("amount"), Value(Decimal("0")),
-            output_field=DecimalField(),
-        ),
-        total_paid=Coalesce(
-            Sum("paid_amount"), Value(Decimal("0")),
-            output_field=DecimalField(),
-        ),
-        paid_entry_amount=Coalesce(
-            Sum("amount", filter=Q(payment_status=PAYMENT_STATUS_PAID)),
-            Value(Decimal("0")),
-            output_field=DecimalField(),
-        ),
-        partial_paid_so_far=Coalesce(
-            Sum("paid_amount", filter=Q(payment_status=PAYMENT_STATUS_PARTIAL)),
-            Value(Decimal("0")),
-            output_field=DecimalField(),
-        ),
+        sales=Coalesce(Sum("total_sales_value"), Value(Decimal("0")), output_field=DecimalField()),
+        commission=Coalesce(Sum("total_commission"), Value(Decimal("0")), output_field=DecimalField()),
+        paid=Coalesce(Sum("paid_amount"), Value(Decimal("0")), output_field=DecimalField()),
     )
 
-    total = queryset.count()
-    paid_count = queryset.filter(payment_status=PAYMENT_STATUS_PAID).count()
-    partial_count = queryset.filter(payment_status=PAYMENT_STATUS_PARTIAL).count()
-    unpaid_count = total - paid_count - partial_count
-
-    total_outstanding = agg["total_amount"] - agg["total_paid"]
+    sales = agg["sales"]
+    commission = agg["commission"]
+    paid = agg["paid"]
+    outstanding = commission - paid
 
     return {
-        "total_entries": total,
-        "paid_count": paid_count,
-        "partial_count": partial_count,
-        "unpaid_count": unpaid_count,
-        "total_amount": agg["total_amount"],
-        "total_paid": agg["total_paid"],
-        "total_outstanding": total_outstanding,
-        # Backward compat keys
-        "paid_amount": agg["paid_entry_amount"],
-        "unpaid_amount": total_outstanding,
+        "total_campaigns": queryset.count(),
+        "total_sales": sales,
+        "total_commission": commission,
+        "total_paid": paid,
+        "total_outstanding": outstanding,
     }
 
 
-def get_postpaid_filter_options():
+def get_campaign_filter_options():
     """
-    Return distinct values for filter dropdowns on the postpaid page.
+    Return distinct values for filter dropdowns on the postpaid campaigns report page.
     """
-    from doctors.models import Doctor
-
     doctors = (
         Doctor.objects
-        .filter(is_active=True, postpaid_entries__isnull=False)
-        .distinct()
+        .filter(is_active=True, mode="postpaid")
         .order_by("name")
         .values("id", "name")
     )
 
+    # Gather distinct years present in the campaigns database
+    campaign_years = (
+        PostpaidCampaign.objects
+        .values_list("year", flat=True)
+        .distinct()
+        .order_by("-year")
+    )
+    years = list(campaign_years)
+    
+    # If no years, default to current year
+    if not years:
+        import datetime
+        years = [datetime.date.today().year]
+
     return {
         "doctors": list(doctors),
-        "statuses": [
-            {"value": PAYMENT_STATUS_PAID, "label": "Fully Paid"},
-            {"value": PAYMENT_STATUS_PARTIAL, "label": "Partially Paid"},
-            {"value": PAYMENT_STATUS_UNPAID, "label": "Unpaid"},
-        ],
+        "years": years,
+        "statuses": PostpaidCampaign.STATUS_CHOICES,
     }
-
-
-def mark_as_paid(entry_id):
-    """
-    Mark a PostpaidEntry as fully paid (sets paid_amount = amount).
-
-    Uses queryset.update() to avoid triggering the save() override.
-
-    Returns the updated entry, or raises PostpaidEntry.DoesNotExist.
-    """
-    from datetime import date
-
-    entry = PostpaidEntry.objects.get(pk=entry_id)
-    PostpaidEntry.objects.filter(pk=entry_id).update(
-        payment_status=PAYMENT_STATUS_PAID,
-        paid_amount=entry.amount,
-        payment_date=date.today(),
-    )
-    entry.refresh_from_db()
-    return entry
-
-
-def record_payment(entry_id, payment_amount):
-    """
-    Record a partial or full payment against a PostpaidEntry.
-
-    Delegates to the model's record_payment() method which handles
-    status transitions and validation.
-
-    Returns the updated entry, or raises PostpaidEntry.DoesNotExist
-    or ValidationError.
-    """
-    entry = PostpaidEntry.objects.get(pk=entry_id)
-    return entry.record_payment(payment_amount)

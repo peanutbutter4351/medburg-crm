@@ -10,11 +10,9 @@ from django.shortcuts import redirect
 
 
 def root_redirect(request):
-    """Redirect root to sales entry for reps, admin for admins."""
+    """Redirect root to dashboard for authenticated users."""
     if request.user.is_authenticated:
-        if hasattr(request.user, "is_admin_user") and request.user.is_admin_user:
-            return redirect("/admin/")
-        return redirect("sales:entry")
+        return redirect("doctors:dashboard")
     return redirect("accounts:login")
 
 

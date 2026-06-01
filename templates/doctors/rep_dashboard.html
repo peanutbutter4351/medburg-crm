@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Rep Dashboard — Medburg CRM{% endblock %}
+
+{% block page_title %}Rep Dashboard{% endblock %}
+{% block page_subtitle %}Your Personal Sales & ROI Summary{% endblock %}
+
+{% block content %}
+
+<!-- ─── Prepaid Section ───────────────────────── -->
+<h4 class="mb-3" style="font-weight: 700; color: var(--text-primary);">Prepaid Performance</h4>
+
+<div class="kpi-grid mb-4">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Active Investments</div>
+            <div class="kpi-value">{{ rep_data.prepaid.active_investments_count }}</div>
+        </div>
+        <div class="kpi-icon doctors"><i class="bi bi-wallet2"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Achieved Value</div>
+            <div class="kpi-value">₹{{ rep_data.prepaid.achieved_value|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Remaining Target</div>
+            <div class="kpi-value">₹{{ rep_data.prepaid.balance|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Recovery Rate</div>
+            <div class="kpi-value">{{ rep_data.prepaid.recovery_pct }}%</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-percent"></i></div>
+    </div>
+</div>
+
+<div class="row g-4 mb-5">
+    <!-- Recent Prepaid Sales -->
+    <div class="col-12 col-xl-8">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-table"></i> Recent Prepaid Sales entries
+                </h5>
+            </div>
+            <div class="data-card-body">
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Doctor</th>
+                                <th>Medicine</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-right">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sale in rep_data.prepaid.recent_sales %}
+                            <tr>
+                                <td>{{ sale.entry_date }}</td>
+                                <td><strong>{{ sale.doctor.name }}</strong></td>
+                                <td>{{ sale.medicine.name }}</td>
+                                <td class="text-center">{{ sale.quantity }}</td>
+                                <td class="text-right value-cell">₹{{ sale.value|floatformat:2 }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted" style="padding: 40px 20px;">
+                                    No prepaid sales recorded recently.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prepaid Info Card -->
+    <div class="col-12 col-xl-4">
+        <div class="data-card padded h-100 d-flex flex-column justify-content-center align-items-center text-center" style="background: linear-gradient(135deg, rgba(239, 167, 67, 0.05), rgba(155, 195, 186, 0.05)); border: 1px dashed var(--border-color);">
+            <div class="kpi-icon investment mb-3" style="width:60px; height:60px; font-size:1.8rem;"><i class="bi bi-award"></i></div>
+            <h5 class="fw-bold mb-2">Completed Investments</h5>
+            <div class="display-4 fw-bold text-crm-primary mb-2">{{ rep_data.prepaid.completed_investments_count }}</div>
+            <p class="text-muted small px-3">Prepaid doctor accounts where you have fully recovered the initial investment target.</p>
+        </div>
+    </div>
+</div>
+
+<!-- ─── Postpaid Section ───────────────────────── -->
+<h4 class="mb-3" style="font-weight: 700; color: var(--text-primary);">Postpaid Performance</h4>
+
+<div class="kpi-grid mb-4">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Active Campaigns</div>
+            <div class="kpi-value">{{ rep_data.postpaid.active_campaigns_count }}</div>
+        </div>
+        <div class="kpi-icon doctors"><i class="bi bi-file-earmark-text"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Monthly Sales ({{ today|date:"M Y"|default:"This Month" }})</div>
+            <div class="kpi-value">₹{{ rep_data.postpaid.monthly_sales|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Awaiting Commission</div>
+            <div class="kpi-value">{{ rep_data.postpaid.status_summary.awaiting_commission }}</div>
+        </div>
+        <div class="kpi-icon target" style="background: rgba(245, 158, 11, 0.1); color: var(--warning);"><i class="bi bi-clock-history"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Open / Active</div>
+            <div class="kpi-value">{{ rep_data.postpaid.status_summary.open }}</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-play-circle"></i></div>
+    </div>
+</div>
+
+<!-- Status Summary Section -->
+<div class="row g-4 mb-4">
+    <!-- Status Detail List -->
+    <div class="col-12 col-md-4">
+        <div class="data-card padded">
+            <h6 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill me-2"></i>Campaign Status Distribution</h6>
+            <div class="d-flex flex-column gap-3">
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="text-muted"><i class="bi bi-circle-fill text-warning me-2 small"></i>Awaiting Commission</span>
+                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.awaiting_commission }}</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="text-muted"><i class="bi bi-circle-fill text-primary me-2 small"></i>Open</span>
+                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.open }}</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="text-muted"><i class="bi bi-circle-fill text-info me-2 small"></i>Partially Paid</span>
+                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.partial }}</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="text-muted"><i class="bi bi-circle-fill text-success me-2 small"></i>Settled</span>
+                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.settled }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Postpaid Sales -->
+    <div class="col-12 col-md-8">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-table"></i> Recent Postpaid Sales entries
+                </h5>
+            </div>
+            <div class="data-card-body">
+                <div class="table-responsive">
+                    <table class="crm-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Doctor</th>
+                                <th>Medicine</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-center">Campaign</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sale in rep_data.postpaid.recent_sales %}
+                            <tr>
+                                <td>{{ sale.entry_date }}</td>
+                                <td><strong>{{ sale.campaign.doctor.name }}</strong></td>
+                                <td>{{ sale.medicine.name }}</td>
+                                <td class="text-center">{{ sale.quantity }}</td>
+                                <td class="text-center"><span class="badge bg-secondary">{{ sale.campaign.month }}/{{ sale.campaign.year }}</span></td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted" style="padding: 40px 20px;">
+                                    No postpaid sales recorded recently.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

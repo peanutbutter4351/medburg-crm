@@ -21,7 +21,8 @@ from django.utils.html import format_html
 
 from core.admin_mixins import ExcelImportAdminMixin
 from .importers.doctor_importer import DoctorImporter
-from .models import Doctor, Investment, DoctorMedicine
+from .models import Doctor, Investment, DoctorMedicine, PrepaidDoctor, PostpaidDoctor
+from sales.models import PostpaidCampaign
 
 
 def _fmt_currency(value):
@@ -124,6 +125,10 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
     """
 
     importer_class = DoctorImporter
+
+    def has_module_permission(self, request):
+        """Hide the base Doctor model from the admin sidebar navigation index."""
+        return False
 
     list_display = (
         "name",
@@ -363,7 +368,6 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
 
         if protected:
             self.message_user(
-                request,
                 f"Blocked deletion of {len(protected)} doctor(s) with linked data: "
                 + ", ".join(protected),
                 level=messages.ERROR,
@@ -375,6 +379,87 @@ class DoctorAdmin(ExcelImportAdminMixin, admin.ModelAdmin):
                 request,
                 f"Deleted {len(safe)} doctor(s) successfully.",
             )
+
+
+class PostpaidCampaignInline(admin.TabularInline):
+    model = PostpaidCampaign
+    extra = 0
+    fields = (
+        "month",
+        "year",
+        "commission_percentage",
+        "total_sales_value",
+        "total_commission",
+        "paid_amount",
+        "status",
+    )
+    readonly_fields = ("total_sales_value", "total_commission", "paid_amount")
+    ordering = ("-year", "-month")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PrepaidDoctor)
+class PrepaidDoctorAdmin(DoctorAdmin):
+    """Admin configuration for Prepaid Doctors."""
+
+    def has_module_permission(self, request):
+        return admin.ModelAdmin.has_module_permission(self, request)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(mode="prepaid")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.mode = "prepaid"
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(PostpaidDoctor)
+class PostpaidDoctorAdmin(DoctorAdmin):
+    """Admin configuration for Postpaid Doctors."""
+
+    def has_module_permission(self, request):
+        return admin.ModelAdmin.has_module_permission(self, request)
+
+    list_display = (
+        "name",
+        "hospital",
+        "location",
+        "doctor_type",
+        "assigned_rep",
+        "get_active_campaigns_count",
+        "is_active",
+    )
+    list_filter = ("doctor_type", "is_active", "location")
+    inlines = [PostpaidCampaignInline, DoctorMedicineInline]
+
+    def get_queryset(self, request):
+        from django.db.models import Count, Q
+        return (
+            admin.ModelAdmin.get_queryset(self, request)
+            .filter(mode="postpaid")
+            .annotate(
+                active_campaigns_count=Count(
+                    "postpaid_campaigns",
+                    filter=~Q(postpaid_campaigns__status="locked")
+                )
+            )
+            .select_related("assigned_rep")
+        )
+
+    @admin.display(description="Active Campaigns")
+    def get_active_campaigns_count(self, obj):
+        return getattr(obj, "active_campaigns_count", 0)
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.mode = "postpaid"
+        super().save_model(request, obj, form, change)
 
 
 # ──────────────────────────────────────────────
@@ -594,7 +679,7 @@ class InvestmentAdmin(admin.ModelAdmin):
 # DoctorMedicine standalone (optional secondary view)
 # ──────────────────────────────────────────────
 
-@admin.register(DoctorMedicine)
+# @admin.register(DoctorMedicine)
 class DoctorMedicineAdmin(admin.ModelAdmin):
     """Standalone view of all doctor ↔ medicine mappings."""
 

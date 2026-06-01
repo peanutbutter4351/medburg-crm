@@ -40,30 +40,55 @@
         <div class="sidebar-label">Main Menu</div>
 
         <ul class="sidebar-nav">
-            {% if user.is_admin_user %}
             <li>
                 <a href="{% url 'doctors:dashboard' %}"
                    class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
                     <i class="bi bi-grid-1x2"></i> Dashboard
                 </a>
             </li>
-            {% endif %}
+
+            <div class="sidebar-label">Prepaid Engine</div>
             <li>
-                <a href="{% url 'sales:entry' %}"
-                   class="{% if request.resolver_match.url_name == 'entry' %}active{% endif %}">
-                    <i class="bi bi-pencil-square"></i> Sales
+                <a href="{% url 'sales:prepaid_entry' %}"
+                   class="{% if request.resolver_match.url_name == 'prepaid_entry' %}active{% endif %}">
+                    <i class="bi bi-pencil-square"></i> Prepaid Sales
                 </a>
             </li>
             {% if user.is_admin_user %}
             <li>
                 <a href="{% url 'reports:report' %}"
                    class="{% if request.resolver_match.app_name == 'reports' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-bar-graph"></i> Reports
+                    <i class="bi bi-file-earmark-bar-graph"></i> Prepaid Report
+                </a>
+            </li>
+            {% endif %}
+
+            <div class="sidebar-label">Postpaid Engine</div>
+            <li>
+                <a href="{% url 'sales:postpaid_entry' %}"
+                   class="{% if request.resolver_match.url_name == 'postpaid_entry' %}active{% endif %}">
+                    <i class="bi bi-pencil-square"></i> Postpaid Sales
+                </a>
+            </li>
+            {% if user.is_admin_user %}
+            <li>
+                <a href="{% url 'sales:postpaid_report' %}"
+                   class="{% if request.resolver_match.url_name == 'postpaid_report' or request.resolver_match.url_name == 'campaign_manage' %}active{% endif %}">
+                    <i class="bi bi-file-earmark-bar-graph"></i> Postpaid Report
+                </a>
+            </li>
+            {% endif %}
+
+            {% if user.is_admin_user %}
+            <div class="sidebar-label">System</div>
+            <li>
+                <a href="/admin/core/importlog/">
+                    <i class="bi bi-journal-text"></i> Import Logs
                 </a>
             </li>
             <li>
                 <a href="/admin/">
-                    <i class="bi bi-gear"></i> Admin
+                    <i class="bi bi-gear"></i> Admin Console
                 </a>
             </li>
             {% endif %}

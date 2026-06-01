@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Postpaid Report — Medburg CRM{% endblock %}
+
+{% block page_title %}Postpaid Report{% endblock %}
+{% block page_subtitle %}Monthly postpaid campaigns monitoring{% endblock %}
+
+{% block content %}
+
+<!-- ─── KPI Cards ──────────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Campaigns</div>
+            <div class="kpi-value">{{ summary.total_campaigns }}</div>
+        </div>
+        <div class="kpi-icon doctors"><i class="bi bi-file-earmark-bar-graph"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Sales</div>
+            <div class="kpi-value">₹{{ summary.total_sales|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Commission</div>
+            <div class="kpi-value">₹{{ summary.total_commission|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-award"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Paid</div>
+            <div class="kpi-value">₹{{ summary.total_paid|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-check-circle"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Outstanding</div>
+            <div class="kpi-value">₹{{ summary.total_outstanding|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon balance"><i class="bi bi-hourglass-split"></i></div>
+    </div>
+</div>
+
+<!-- ─── Filter Bar ─────────────────────────────── -->
+<div class="filter-card">
+    <form method="get">
+        <div class="row g-3 align-items-end">
+            <!-- Search -->
+            <div class="col-12 col-md-3">
+                <label class="form-label">
+                    <i class="bi bi-search me-1"></i>Search
+                </label>
+                <input type="text" name="search" class="form-control" placeholder="Doctor, hospital…"
+                    value="{{ current_search }}">
+            </div>
+
+            <!-- Doctor filter -->
+            <div class="col-6 col-md-2">
+                <label class="form-label">Doctor</label>
+                <select name="doctor" class="form-select">
+                    <option value="">All Doctors</option>
+                    {% for d in filter_options.doctors %}
+                    <option value="{{ d.id }}" {% if current_doctor == d.id %}selected{% endif %}>
+                        {{ d.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Month filter -->
+            <div class="col-6 col-md-1">
+                <label class="form-label">Month</label>
+                <select name="month" class="form-select">
+                    <option value="">All</option>
+                    {% for m in "123456789"|make_list %}
+                    <option value="{{ forloop.counter }}" {% if current_month == forloop.counter %}selected{% endif %}>
+                        {{ forloop.counter|stringformat:"02d" }}
+                    </option>
+                    {% endfor %}
+                    <option value="10" {% if current_month == 10 %}selected{% endif %}>10</option>
+                    <option value="11" {% if current_month == 11 %}selected{% endif %}>11</option>
+                    <option value="12" {% if current_month == 12 %}selected{% endif %}>12</option>
+                </select>
+            </div>
+
+            <!-- Year filter -->
+            <div class="col-6 col-md-1">
+                <label class="form-label">Year</label>
+                <select name="year" class="form-select">
+                    <option value="">All</option>
+                    {% for y in filter_options.years %}
+                    <option value="{{ y }}" {% if current_year == y %}selected{% endif %}>
+                        {{ y }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status filter -->
+            <div class="col-6 col-md-2">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All Statuses</option>
+                    {% for val, label in filter_options.statuses %}
+                    <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-6 col-md-3 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Filter
+                </button>
+                <a href="{% url 'sales:postpaid_report' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ─── Campaigns Table ────────────────────────── -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-table"></i> Postpaid Campaigns
+            <span class="count-badge">{{ campaigns|length }}</span>
+        </h5>
+    </div>
+    <div class="data-card-body">
+        <div class="table-responsive">
+            <table class="crm-table" id="campaigns-table">
+                <thead>
+                    <tr>
+                        <th>Doctor</th>
+                        <th>Period</th>
+                        <th class="text-center">Commission %</th>
+                        <th class="text-right">Sales Value</th>
+                        <th class="text-right">Commission</th>
+                        <th class="text-right">Paid</th>
+                        <th class="text-right">Outstanding</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for camp in campaigns %}
+                    <tr>
+                        <td>
+                            <strong>{{ camp.doctor.name }}</strong>
+                            {% if camp.doctor.hospital %}
+                            <br><small class="text-crm-muted">{{ camp.doctor.hospital }}</small>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-secondary">{{ camp.month|stringformat:"02d" }}/{{ camp.year }}</span></td>
+                        <td class="text-center value-cell">
+                            {% if camp.commission_percentage is not None %}
+                            {{ camp.commission_percentage }}%
+                            {% else %}
+                            <span class="text-warning fw-semibold">Not Set</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right value-cell">₹{{ camp.total_sales_value|floatformat:2 }}</td>
+                        <td class="text-right value-cell text-positive">₹{{ camp.total_commission|floatformat:2 }}</td>
+                        <td class="text-right value-cell">₹{{ camp.paid_amount|floatformat:2 }}</td>
+                        <td class="text-right value-cell {% if camp.outstanding_balance > 0 %}text-negative{% endif %}">
+                            ₹{{ camp.outstanding_balance|floatformat:2 }}
+                        </td>
+                        <td class="text-center">
+                            {% if camp.status == "awaiting_commission" %}
+                            <span class="crm-badge pending">Awaiting Commission</span>
+                            {% elif camp.status == "open" %}
+                            <span class="crm-badge in-progress">Open</span>
+                            {% elif camp.status == "partial" %}
+                            <span class="crm-badge in-progress" style="background: rgba(59, 130, 246, 0.15); color: #1d4ed8;">Partial</span>
+                            {% elif camp.status == "settled" %}
+                            <span class="crm-badge completed">Settled</span>
+                            {% elif camp.status == "locked" %}
+                            <span class="crm-badge no-investment" style="background: rgba(15, 23, 42, 0.1); color: #0f172a;"><i class="bi bi-lock-fill"></i> Locked</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{% url 'sales:campaign_manage' campaign_id=camp.id %}" class="btn-crm-outline btn-sm">
+                                <i class="bi bi-sliders"></i> Manage
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center" style="padding: 60px 20px;">
+                            <div class="empty-state">
+                                <i class="bi bi-inbox"></i>
+                                <p>No postpaid campaigns found matching your filters.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- Custom template filter implementation in JS if we don't have registered subtraction filter -->
+<script>
+    (function () {
+        const searchInput = document.querySelector('input[name="search"]');
+        if (!searchInput) return;
+        const table = document.querySelector('#campaigns-table tbody');
+        if (!table) return;
+
+        searchInput.addEventListener('input', function () {
+            const term = this.value.toLowerCase();
+            const rows = table.querySelectorAll('tr');
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+    })();
+</script>
+{% endblock %}

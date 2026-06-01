@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Postpaid Sales Entry — Medburg CRM{% endblock %}
+
+{% block page_title %}Postpaid Sales Entry{% endblock %}
+{% block page_subtitle %}Record a new sales entry for postpaid accounts{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+
+    <!-- ─── Entry Form ─────────────────────────────── -->
+    <div class="col-12 col-md-7 col-lg-6 mb-4">
+        <div class="data-card">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-pencil-square"></i> New Postpaid Sales Entry
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                <form method="post" id="postpaidSalesEntryForm" class="crm-form" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                    <div class="crm-alert error">
+                        {% for error in form.non_field_errors %}
+                            <small>{{ error }}</small><br>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Doctor -->
+                    <div class="mb-3">
+                        <label for="id_doctor" class="form-label">
+                            <i class="bi bi-person-badge me-1 text-crm-primary"></i>Doctor
+                        </label>
+                        {{ form.doctor }}
+                        {% if form.doctor.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.doctor.errors.0 }}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Period: Month & Year -->
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label for="id_month" class="form-label">
+                                <i class="bi bi-calendar me-1 text-crm-primary"></i>Month
+                            </label>
+                            {{ form.month }}
+                            {% if form.month.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.month.errors.0 }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="col-6">
+                            <label for="id_year" class="form-label">
+                                <i class="bi bi-calendar-event me-1 text-crm-primary"></i>Year
+                            </label>
+                            {{ form.year }}
+                            {% if form.year.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.year.errors.0 }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Medicine -->
+                    <div class="mb-3">
+                        <label for="id_medicine" class="form-label">
+                            <i class="bi bi-capsule me-1 text-crm-primary"></i>Medicine
+                        </label>
+                        {{ form.medicine }}
+                        {% if form.medicine.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.medicine.errors.0 }}
+                        </div>
+                        {% endif %}
+                        <div id="medicinePTS" class="form-text fw-semibold" style="display:none; color: var(--primary);"></div>
+                    </div>
+
+                    <!-- Quantity -->
+                    <div class="mb-4">
+                        <label for="id_quantity" class="form-label">
+                            <i class="bi bi-123 me-1 text-crm-primary"></i>Quantity
+                        </label>
+                        {{ form.quantity }}
+                        {% if form.quantity.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.quantity.errors.0 }}
+                        </div>
+                        {% endif %}
+                        <div id="liveValue" class="form-text fw-bold text-positive" style="display:none;"></div>
+                    </div>
+
+                    <!-- Notes -->
+                    <div class="mb-4">
+                        <label for="id_notes" class="form-label">
+                            <i class="bi bi-chat-left-text me-1 text-crm-primary"></i>Notes
+                        </label>
+                        {{ form.notes }}
+                        {% if form.notes.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.notes.errors.0 }}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <button type="submit" class="btn-submit" id="btnSubmit">
+                        <i class="bi bi-check-circle me-1"></i> Submit Entry
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Postpaid Campaign Info Panel ───────────── -->
+    <div class="col-12 col-md-5 col-lg-4 mb-4">
+        <div class="data-card" id="campaignPanel" style="display:none;">
+            <div class="data-card-header">
+                <h5 class="data-card-title">
+                    <i class="bi bi-file-earmark-text"></i> Postpaid Campaign
+                </h5>
+            </div>
+            <div class="data-card-body padded">
+                <div id="campaignWarning" class="crm-alert error mb-3" style="display:none;">
+                    <strong>Warning:</strong> This campaign is locked, partial, or settled. No new entries can be added.
+                </div>
+
+                <div id="campaignDetails">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Campaign Status</span>
+                        <span class="fw-semibold" id="campaignStatus">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Commission Rate</span>
+                        <span class="fw-semibold" id="campaignCommission">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Total Sales Value</span>
+                        <span class="fw-semibold" id="campaignSalesValue">—</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-crm-muted">Total Commission</span>
+                        <span class="fw-semibold text-positive" id="campaignCommissionValue">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const doctorSelect   = document.getElementById('id_doctor');
+    const monthSelect    = document.getElementById('id_month');
+    const yearSelect     = document.getElementById('id_year');
+    const medicineSelect = document.getElementById('id_medicine');
+    const quantityInput  = document.getElementById('id_quantity');
+    const campaignPanel  = document.getElementById('campaignPanel');
+    const campaignStatus = document.getElementById('campaignStatus');
+    const campaignCommission = document.getElementById('campaignCommission');
+    const campaignSalesValue = document.getElementById('campaignSalesValue');
+    const campaignCommissionValue = document.getElementById('campaignCommissionValue');
+    const campaignWarning = document.getElementById('campaignWarning');
+    const btnSubmit      = document.getElementById('btnSubmit');
+    const medicinePTS    = document.getElementById('medicinePTS');
+    const liveValue      = document.getElementById('liveValue');
+
+    let medicineData = {};
+
+    function checkCampaign() {
+        const doctorId = doctorSelect.value;
+        const month = monthSelect.value;
+        const year = yearSelect.value;
+
+        if (!doctorId || !month || !year) {
+            campaignPanel.style.display = 'none';
+            return;
+        }
+
+        fetch(`/sales/api/campaign/${doctorId}/${month}/${year}/`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.is_prepaid) {
+                    campaignPanel.style.display = 'none';
+                    return;
+                }
+
+                campaignPanel.style.display = '';
+                campaignStatus.textContent = data.status_display;
+                
+                if (data.exists) {
+                    campaignCommission.textContent = data.commission_percentage !== null ? data.commission_percentage + '%' : 'Not Configured (Awaiting Admin)';
+                    campaignSalesValue.textContent = '₹' + formatNum(data.total_sales_value);
+                    campaignCommissionValue.textContent = '₹' + formatNum(data.total_commission);
+
+                    if (data.is_locked) {
+                        campaignWarning.style.display = '';
+                        btnSubmit.disabled = true;
+                        btnSubmit.style.opacity = '0.5';
+                        btnSubmit.style.cursor = 'not-allowed';
+                    } else {
+                        campaignWarning.style.display = 'none';
+                        btnSubmit.disabled = false;
+                        btnSubmit.style.opacity = '';
+                        btnSubmit.style.cursor = '';
+                    }
+                } else {
+                    campaignCommission.textContent = 'Not Configured (Will Auto-Create)';
+                    campaignSalesValue.textContent = '₹0.00';
+                    campaignCommissionValue.textContent = '₹0.00';
+                    campaignWarning.style.display = 'none';
+                    btnSubmit.disabled = false;
+                    btnSubmit.style.opacity = '';
+                    btnSubmit.style.cursor = '';
+                }
+            })
+            .catch(err => console.error('Failed to load campaign data:', err));
+    }
+
+    doctorSelect.addEventListener('change', function () {
+        const doctorId = this.value;
+        medicineData = {};
+        medicinePTS.style.display = 'none';
+        liveValue.style.display = 'none';
+
+        medicineSelect.innerHTML = '<option value="">— Select Medicine —</option>';
+        quantityInput.value = '';
+
+        if (!doctorId) {
+            campaignPanel.style.display = 'none';
+            return;
+        }
+
+        fetch(`/sales/api/medicines/${doctorId}/`)
+            .then(r => r.json())
+            .then(data => {
+                data.medicines.forEach(med => {
+                    const opt = document.createElement('option');
+                    opt.value = med.id;
+                    opt.textContent = med.name;
+                    medicineSelect.appendChild(opt);
+                    medicineData[med.id] = med;
+                });
+                checkCampaign();
+            })
+            .catch(err => console.error('Failed to load doctor medicines:', err));
+    });
+
+    monthSelect.addEventListener('change', checkCampaign);
+    yearSelect.addEventListener('change', checkCampaign);
+
+    medicineSelect.addEventListener('change', function () {
+        const med = medicineData[this.value];
+        if (med && med.pts) {
+            medicinePTS.textContent = 'PTS: ₹' + parseFloat(med.pts).toFixed(2);
+            medicinePTS.style.display = '';
+        } else {
+            medicinePTS.style.display = 'none';
+        }
+        updateLiveValue();
+    });
+
+    quantityInput.addEventListener('input', updateLiveValue);
+
+    function updateLiveValue() {
+        const med = medicineData[medicineSelect.value];
+        const qty = parseInt(quantityInput.value, 10);
+        if (med && qty > 0) {
+            const val = qty * parseFloat(med.pts);
+            liveValue.textContent = 'Value: ₹' + formatNum(val);
+            liveValue.style.display = '';
+        } else {
+            liveValue.style.display = 'none';
+        }
+    }
+
+    function formatNum(n) {
+        return Number(n).toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+    }
+
+    // Trigger initial state if fields are populated on load
+    if (doctorSelect.value) {
+        doctorSelect.dispatchEvent(new Event('change'));
+    }
+})();
+</script>
+{% endblock %}

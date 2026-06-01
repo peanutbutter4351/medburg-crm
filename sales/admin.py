@@ -13,7 +13,7 @@ from django.contrib import admin, messages
 from django.db.models import Sum, F
 from django.utils.html import format_html
 
-from .models import SalesEntry, PostpaidEntry
+from .models import SalesEntry, PostpaidCampaign, PostpaidSaleEntry, CampaignPayment
 
 
 def _fmt_currency(value):
@@ -416,3 +416,87 @@ class PostpaidEntryAdmin(admin.ModelAdmin):
             request,
             f"Marked {count} entr{'y' if count == 1 else 'ies'} as fully paid.",
         )
+
+
+@admin.register(PostpaidCampaign)
+class PostpaidCampaignAdmin(admin.ModelAdmin):
+    list_display = (
+        "doctor",
+        "month",
+        "year",
+        "commission_percentage",
+        "get_total_sales",
+        "get_total_commission",
+        "get_paid_amount",
+        "get_outstanding_balance",
+        "status",
+        "settled_at",
+    )
+    list_filter = ("status", "month", "year", "doctor")
+    search_fields = ("doctor__name",)
+    readonly_fields = ("total_sales_value", "total_commission", "paid_amount", "locked_at", "settled_at")
+
+    @admin.display(description="Total Sales")
+    def get_total_sales(self, obj):
+        return _fmt_currency(obj.total_sales_value)
+
+    @admin.display(description="Total Commission")
+    def get_total_commission(self, obj):
+        return _fmt_currency(obj.total_commission)
+
+    @admin.display(description="Paid Amount")
+    def get_paid_amount(self, obj):
+        return _fmt_currency(obj.paid_amount)
+
+    @admin.display(description="Outstanding Balance")
+    def get_outstanding_balance(self, obj):
+        return _fmt_currency(obj.outstanding_balance)
+
+
+@admin.register(PostpaidSaleEntry)
+class PostpaidSaleEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "entry_date",
+        "campaign",
+        "medicine",
+        "quantity",
+        "get_pts",
+        "get_value",
+        "rep",
+    )
+    list_filter = ("entry_date", "campaign__status", "rep", "medicine")
+    search_fields = ("campaign__doctor__name", "medicine__name", "rep__username")
+    readonly_fields = ("pts_at_sale", "value_at_sale", "commission_percentage_at_sale", "commission_at_sale")
+
+    @admin.display(description="PTS at Sale")
+    def get_pts(self, obj):
+        return _fmt_currency(obj.pts_at_sale)
+
+    @admin.display(description="Value at Sale")
+    def get_value(self, obj):
+        return _fmt_currency(obj.value_at_sale)
+
+
+@admin.register(CampaignPayment)
+class CampaignPaymentAdmin(admin.ModelAdmin):
+    list_display = (
+        "campaign",
+        "get_amount",
+        "payment_date",
+        "reference",
+    )
+    list_filter = ("payment_date", "campaign__doctor")
+    search_fields = ("campaign__doctor__name", "reference")
+
+    @admin.display(description="Amount")
+    def get_amount(self, obj):
+        return _fmt_currency(obj.amount)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return [field.name for field in self.model._meta.fields]
+        return self.readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+

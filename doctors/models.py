@@ -147,6 +147,22 @@ class Doctor(BaseModel):
         return self.name
 
 
+class PrepaidDoctor(Doctor):
+    """Proxy model for Prepaid Doctors in Django Admin."""
+    class Meta:
+        proxy = True
+        verbose_name = "Prepaid Doctor"
+        verbose_name_plural = "Prepaid Doctors"
+
+
+class PostpaidDoctor(Doctor):
+    """Proxy model for Postpaid Doctors in Django Admin."""
+    class Meta:
+        proxy = True
+        verbose_name = "Postpaid Doctor"
+        verbose_name_plural = "Postpaid Doctors"
+
+
 class Investment(BaseModel):
     """
     An investment made for a specific doctor (prepaid mode).
