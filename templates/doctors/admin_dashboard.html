@@ -19,6 +19,17 @@
 </div>
 {% endif %}
 
+
+<!-- ─── Dashboard Navigation ─── -->
+<div class="d-flex justify-content-center mb-5 mt-2">
+    <div class="btn-group shadow-sm" role="group" style="border-radius: var(--radius-md); overflow: hidden;">
+        <button type="button" class="btn btn-outline-primary fw-bold px-4 py-2" onclick="switchDashboardSection('prepaid')" id="btn-prepaid">PREPAID</button>
+        <button type="button" class="btn btn-primary fw-bold px-4 py-2" onclick="switchDashboardSection('home')" id="btn-home">HOME</button>
+        <button type="button" class="btn btn-outline-primary fw-bold px-4 py-2" onclick="switchDashboardSection('postpaid')" id="btn-postpaid">POSTPAID</button>
+    </div>
+</div>
+
+<div id="dashboard-prepaid-section" style="display: none;">
 <!-- ─── Prepaid Section ───────────────────────── -->
 <h4 class="mb-3" style="font-weight: 700; color: var(--text-primary);">Prepaid Engine</h4>
 
@@ -230,6 +241,9 @@
     </div>
 </div>
 
+</div>
+
+<div id="dashboard-postpaid-section" style="display: none;">
 <!-- ─── Postpaid Section ──────────────────────── -->
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h4 class="mb-0" style="font-weight: 700; color: var(--text-primary);">Postpaid Engine Summary</h4>
@@ -350,69 +364,9 @@
     </div>
 </div>
 
-<!-- ─── Unified Company Activity Feed ────────────────── -->
-<div class="data-card mb-5">
-    <div class="data-card-header">
-        <h5 class="data-card-title">
-            <i class="bi bi-activity"></i> Unified Activity Feed
-        </h5>
-    </div>
-    <div class="data-card-body">
-        <div class="table-responsive">
-            <table class="crm-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th class="text-center">Type</th>
-                        <th>Doctor</th>
-                        <th>Medicine</th>
-                        <th class="text-right">Qty</th>
-                        <th class="text-right">Value (₹)</th>
-                        <th>Rep</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in unified_feed %}
-                    <tr>
-                        <td class="text-crm-muted">{{ item.obj.entry_date|date:"Y-m-d" }}</td>
-                        <td class="text-center">
-                            {% if item.type == 'prepaid' %}
-                            <span class="crm-badge prepaid">Prepaid</span>
-                            {% else %}
-                            <span class="crm-badge postpaid">Postpaid</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if item.type == 'prepaid' %}
-                                <strong>{{ item.obj.doctor.name }}</strong>
-                                {% if item.obj.doctor.hospital %}
-                                <br><small class="text-crm-muted">{{ item.obj.doctor.hospital }}</small>
-                                {% endif %}
-                            {% else %}
-                                <strong>{{ item.obj.campaign.doctor.name }}</strong>
-                                {% if item.obj.campaign.doctor.hospital %}
-                                <br><small class="text-crm-muted">{{ item.obj.campaign.doctor.hospital }}</small>
-                                {% endif %}
-                            {% endif %}
-                        </td>
-                        <td>{{ item.obj.medicine.name }}</td>
-                        <td class="text-right">{{ item.obj.quantity }}</td>
-                        <td class="text-right value-cell">₹{{ item.obj.value_at_sale|floatformat:0 }}</td>
-                        <td>{{ item.obj.rep.get_full_name|default:item.obj.rep.username }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="7" class="text-center text-muted" style="padding: 30px;">
-                            No recent sales activity.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
 </div>
 
+<div id="dashboard-home-section">
 <!-- ─── Analytics & KPI Visualizations ─── -->
 <div class="row mb-5">
     <!-- Prepaid Monthly Trend -->
@@ -478,6 +432,73 @@
     </div>
 </div>
 
+
+<!-- ─── Unified Company Activity Feed ────────────────── -->
+<div class="data-card mb-5">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-activity"></i> Unified Activity Feed
+        </h5>
+    </div>
+    <div class="data-card-body">
+        <div class="table-responsive">
+            <table class="crm-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th class="text-center">Type</th>
+                        <th>Doctor</th>
+                        <th>Medicine</th>
+                        <th class="text-right">Qty</th>
+                        <th class="text-right">Value (₹)</th>
+                        <th>Rep</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in unified_feed %}
+                    <tr>
+                        <td class="text-crm-muted">{{ item.obj.entry_date|date:"Y-m-d" }}</td>
+                        <td class="text-center">
+                            {% if item.type == 'prepaid' %}
+                            <span class="crm-badge prepaid">Prepaid</span>
+                            {% else %}
+                            <span class="crm-badge postpaid">Postpaid</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.type == 'prepaid' %}
+                                <strong>{{ item.obj.doctor.name }}</strong>
+                                {% if item.obj.doctor.hospital %}
+                                <br><small class="text-crm-muted">{{ item.obj.doctor.hospital }}</small>
+                                {% endif %}
+                            {% else %}
+                                <strong>{{ item.obj.campaign.doctor.name }}</strong>
+                                {% if item.obj.campaign.doctor.hospital %}
+                                <br><small class="text-crm-muted">{{ item.obj.campaign.doctor.hospital }}</small>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>{{ item.obj.medicine.name }}</td>
+                        <td class="text-right">{{ item.obj.quantity }}</td>
+                        <td class="text-right value-cell">₹{{ item.obj.value_at_sale|floatformat:0 }}</td>
+                        <td>{{ item.obj.rep.get_full_name|default:item.obj.rep.username }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted" style="padding: 30px;">
+                            No recent sales activity.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+</div>
+
 {{ admin_analytics|json_script:"admin-analytics-data" }}
 
 {% endblock %}
@@ -501,7 +522,24 @@
         });
     })();
 
+
+    function switchDashboardSection(section) {
+        const sections = ['prepaid', 'home', 'postpaid'];
+        sections.forEach(s => {
+            document.getElementById('dashboard-' + s + '-section').style.display = (s === section) ? 'block' : 'none';
+            const btn = document.getElementById('btn-' + s);
+            if (s === section) {
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-primary');
+            } else {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline-primary');
+            }
+        });
+    }
+
     // ── Chart.js Initialization ──
+
     document.addEventListener("DOMContentLoaded", function() {
         const dataNode = document.getElementById('admin-analytics-data');
         if (!dataNode) return;

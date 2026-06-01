@@ -164,11 +164,44 @@ def get_rep_dashboard_analytics(user):
         total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
     ).order_by('month')
 
-    monthly_data = {label: Decimal('0.00') for label in labels}
+    monthly_postpaid_data = {label: Decimal('0.00') for label in labels}
     for row in postpaid_qs:
         month_label = row['month'].strftime("%b %Y")
-        if month_label in monthly_data:
-            monthly_data[month_label] = row['total']
+        if month_label in monthly_postpaid_data:
+            monthly_postpaid_data[month_label] = row['total']
+
+    # 3. Monthly Prepaid Sales (last 12 months)
+    prepaid_qs = SalesEntry.objects.filter(rep=user, entry_date__gte=start_date).annotate(
+        month=TruncMonth('entry_date')
+    ).values('month').annotate(
+        total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
+    ).order_by('month')
+
+    monthly_prepaid_data = {label: Decimal('0.00') for label in labels}
+    for row in prepaid_qs:
+        month_label = row['month'].strftime("%b %Y")
+        if month_label in monthly_prepaid_data:
+            monthly_prepaid_data[month_label] = row['total']
+
+    # 4. Investment Status Distribution
+    from doctors.models import Investment
+    prepaid_doctors = Doctor.objects.filter(assigned_rep=user, mode='prepaid')
+    
+    in_progress = 0
+    completed = 0
+    no_investment = 0
+    
+    for doc in prepaid_doctors:
+        active_inv = doc.investments.filter(status=Investment.STATUS_IN_PROGRESS).exists()
+        if active_inv:
+            in_progress += 1
+        elif doc.investments.filter(status=Investment.STATUS_COMPLETED).exists():
+            completed += 1
+        else:
+            no_investment += 1
+
+    investment_distribution_labels = ["In Progress", "Completed", "No Investment"]
+    investment_distribution_data = [in_progress, completed, no_investment]
 
     return {
         "campaign_distribution": {
@@ -177,6 +210,14 @@ def get_rep_dashboard_analytics(user):
         },
         "monthly_postpaid_sales": {
             "labels": labels,
-            "data": [float(val) for val in monthly_data.values()]
+            "data": [float(val) for val in monthly_postpaid_data.values()]
+        },
+        "monthly_prepaid_sales": {
+            "labels": labels,
+            "data": [float(val) for val in monthly_prepaid_data.values()]
+        },
+        "investment_distribution": {
+            "labels": investment_distribution_labels,
+            "data": investment_distribution_data
         }
     }

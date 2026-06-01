@@ -41,8 +41,26 @@
 </div>
 
 <div class="row g-4 mb-5">
+    <div class="col-12 col-md-4">
+        <!-- Investment Status Distribution -->
+        <div class="data-card padded mb-4">
+            <h6 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill me-2 text-warning"></i>Investment Status</h6>
+            <div style="position: relative; width: 100%; height: 220px;" class="d-flex justify-content-center align-items-center">
+                <canvas id="investmentDistributionChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Monthly Prepaid Sales Trend -->
+        <div class="data-card padded">
+            <h6 class="fw-bold mb-3"><i class="bi bi-graph-up text-primary me-2"></i>Monthly Prepaid Sales</h6>
+            <div style="position: relative; width: 100%; height: 200px;" class="d-flex justify-content-center align-items-center">
+                <canvas id="repMonthlyPrepaidChart"></canvas>
+            </div>
+        </div>
+    </div>
+
     <!-- Recent Prepaid Sales -->
-    <div class="col-12 col-xl-8">
+    <div class="col-12 col-md-8">
         <div class="data-card h-100">
             <div class="data-card-header">
                 <h5 class="data-card-title">
@@ -81,16 +99,6 @@
                     </table>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Prepaid Info Card -->
-    <div class="col-12 col-xl-4">
-        <div class="data-card padded h-100 d-flex flex-column justify-content-center align-items-center text-center" style="background: linear-gradient(135deg, rgba(239, 167, 67, 0.05), rgba(155, 195, 186, 0.05)); border: 1px dashed var(--border-color);">
-            <div class="kpi-icon investment mb-3" style="width:60px; height:60px; font-size:1.8rem;"><i class="bi bi-award"></i></div>
-            <h5 class="fw-bold mb-2">Completed Investments</h5>
-            <div class="display-4 fw-bold text-crm-primary mb-2">{{ rep_data.prepaid.completed_investments_count }}</div>
-            <p class="text-muted small px-3">Prepaid doctor accounts where you have fully recovered the initial investment target.</p>
         </div>
     </div>
 </div>
@@ -270,6 +278,88 @@
                             tension: 0.3,
                             fill: true,
                             pointBackgroundColor: '#10b981',
+                            pointRadius: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: {
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: { size: 10 }
+                                }
+                            },
+                            y: { 
+                                beginAtZero: true,
+                                ticks: { 
+                                    callback: currencyFormatter,
+                                    font: { size: 10 }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    // 3. Investment Distribution Doughnut
+        const invCtx = document.getElementById('investmentDistributionChart');
+        if (invCtx) {
+            const hasData = analytics.investment_distribution.data.some(d => d > 0);
+            if (!hasData) {
+                invCtx.parentElement.innerHTML = '<div class="text-muted">No Data Available</div>';
+            } else {
+                new Chart(invCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: analytics.investment_distribution.labels,
+                        datasets: [{
+                            data: analytics.investment_distribution.data,
+                            backgroundColor: ['#0ea5e9', '#10b981', '#cbd5e1'],
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '60%',
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 12
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 4. Monthly Prepaid Sales Line Chart
+        const linePrepaidCtx = document.getElementById('repMonthlyPrepaidChart');
+        if (linePrepaidCtx) {
+            const hasData = analytics.monthly_prepaid_sales.data.some(d => d > 0);
+            if (!hasData) {
+                linePrepaidCtx.parentElement.innerHTML = '<div class="text-muted">No Data Available</div>';
+            } else {
+                new Chart(linePrepaidCtx, {
+                    type: 'line',
+                    data: {
+                        labels: analytics.monthly_prepaid_sales.labels,
+                        datasets: [{
+                            label: 'Prepaid Sales',
+                            data: analytics.monthly_prepaid_sales.data,
+                            borderColor: '#0ea5e9',
+                            backgroundColor: '#0ea5e920',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            pointBackgroundColor: '#0ea5e9',
                             pointRadius: 3
                         }]
                     },
