@@ -5,7 +5,13 @@
 
 /* ── CSS Variables ─────────────────────────────── */
 :root {
-    --primary:        #efa743;
+    --brand-primary:  #efa743;
+    --brand-success:  #22c55e;
+    --brand-danger:   #ef4444;
+    --brand-info:     #3b82f6;
+    --brand-warning:  #f59e0b;
+
+    --primary:        var(--brand-primary);
     --primary-dark:   #d9922e;
     --secondary:      #9bc3ba;
     --secondary-dark: #7aada2;
@@ -19,10 +25,10 @@
     --text-secondary: #64748b;
     --text-muted:     #94a3b8;
     --border-color:   #e2e8f0;
-    --success:        #22c55e;
-    --danger:         #ef4444;
-    --info:           #3b82f6;
-    --warning:        #f59e0b;
+    --success:        var(--brand-success);
+    --danger:         var(--brand-danger);
+    --info:           var(--brand-info);
+    --warning:        var(--brand-warning);
     --radius-sm:      8px;
     --radius-md:      12px;
     --radius-lg:      16px;
@@ -32,6 +38,13 @@
     --sidebar-width:  250px;
     --topbar-height:  64px;
     --transition:     all .2s ease;
+
+    /* Typography Hierarchy */
+    --font-size-page-title: 1.5rem;
+    --font-size-section-title: 1.15rem;
+    --font-size-card-title: 1rem;
+    --font-size-body: 0.95rem;
+    --font-size-meta: 0.85rem;
 }
 
 
@@ -991,4 +1004,68 @@ body {
 
 @media (max-width: 480px) {
     .kpi-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Typography Hierarchy ─────────────────────── */
+.topbar-title { font-size: var(--font-size-page-title); }
+.sidebar-label { font-size: var(--font-size-meta); margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.kpi-label { font-size: var(--font-size-meta); }
+.data-card-title { font-size: var(--font-size-card-title); }
+.crm-form .form-label { font-size: var(--font-size-body); }
+.kpi-value { font-size: var(--font-size-page-title); }
+
+/* ── Spacing System ───────────────────────────── */
+.data-card { margin-bottom: 24px; }
+.data-card-header { padding: 16px 24px; }
+.data-card-body { padding: 24px; }
+.filter-card { padding: 16px 24px; margin-bottom: 24px; }
+.crm-table tbody td, .crm-table thead th { padding: 14px 16px; }
+
+/* ── Responsive Tables ────────────────────────── */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+}
+.table-responsive .crm-table {
+    min-width: 800px; /* Force scroll on small screens */
+}
+
+/* ── Touch Targets & Forms ────────────────────── */
+.crm-form .form-control,
+.crm-form .form-select,
+.filter-card .form-control,
+.filter-card .form-select,
+.btn-crm-primary,
+.btn-crm-secondary,
+.btn-crm-outline,
+.btn-submit {
+    min-height: 44px;
+}
+
+/* ── Tablet Optimization (768px to 1194px) ────── */
+@media (max-width: 1194px) {
+    .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+}
+
+@media (max-width: 1024px) {
+    .sidebar { width: 220px; }
+    .app-main { margin-left: 220px; }
+    .app-content { padding: 24px; }
+}
+
+@media (max-width: 834px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .sidebar-toggle { display: block; }
+    .app-main { margin-left: 0; }
+}
+
+@media (max-width: 768px) {
+    .app-content { padding: 20px 16px; }
+    .topbar { padding: 0 16px; }
+    .topbar-search { display: none; }
+    .filter-card .row > div { margin-bottom: 12px; }
 }

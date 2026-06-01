@@ -37,70 +37,69 @@
             <span class="brand-text">Medburg CRM</span>
         </div>
 
-        <div class="sidebar-label">Main Menu</div>
-
         <ul class="sidebar-nav">
             <li>
                 <a href="{% url 'doctors:dashboard' %}"
                    class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
-                    <i class="bi bi-grid-1x2"></i> Dashboard
+                    <i class="bi bi-grid-1x2"></i> <span>Dashboard</span>
                 </a>
             </li>
 
-            <div class="sidebar-label">Prepaid Engine</div>
+            <div class="sidebar-label mt-4">Prepaid</div>
             <li>
                 <a href="{% url 'sales:prepaid_entry' %}"
                    class="{% if request.resolver_match.url_name == 'prepaid_entry' %}active{% endif %}">
-                    <i class="bi bi-pencil-square"></i> Prepaid Sales
+                    <i class="bi bi-pencil-square"></i> <span>Prepaid Sales</span>
                 </a>
             </li>
             {% if user.is_admin_user %}
             <li>
                 <a href="{% url 'reports:report' %}"
                    class="{% if request.resolver_match.app_name == 'reports' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-bar-graph"></i> Prepaid Report
+                    <i class="bi bi-file-earmark-bar-graph"></i> <span>Prepaid Report</span>
                 </a>
             </li>
             {% endif %}
 
-            <div class="sidebar-label">Postpaid Engine</div>
+            <div class="sidebar-label mt-4">Postpaid</div>
             <li>
                 <a href="{% url 'sales:postpaid_entry' %}"
                    class="{% if request.resolver_match.url_name == 'postpaid_entry' %}active{% endif %}">
-                    <i class="bi bi-pencil-square"></i> Postpaid Sales
+                    <i class="bi bi-pencil-square"></i> <span>Postpaid Sales</span>
                 </a>
             </li>
             {% if user.is_admin_user %}
             <li>
                 <a href="{% url 'sales:postpaid_report' %}"
                    class="{% if request.resolver_match.url_name == 'postpaid_report' or request.resolver_match.url_name == 'campaign_manage' %}active{% endif %}">
-                    <i class="bi bi-sliders"></i> Campaign Monitor
+                    <i class="bi bi-sliders"></i> <span>Campaign Monitor</span>
                 </a>
             </li>
             <li>
                 <a href="{% url 'sales:postpaid_sales_report' %}"
                    class="{% if request.resolver_match.url_name == 'postpaid_sales_report' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-bar-graph"></i> Sales Report
+                    <i class="bi bi-graph-up"></i> <span>Sales Report</span>
                 </a>
             </li>
             <li>
                 <a href="{% url 'sales:settlement_ledger' %}"
                    class="{% if request.resolver_match.url_name == 'settlement_ledger' %}active{% endif %}">
-                    <i class="bi bi-journal-text"></i> Settlement Ledger
+                    <i class="bi bi-journal-text"></i> <span>Settlement Ledger</span>
                 </a>
             </li>
             {% endif %}
 
             {% if user.is_admin_user %}
-            <div class="sidebar-label">System</div>
+            <div class="sidebar-label mt-4">System</div>
             <li>
-                <a href="/admin/core/importlog/">
-                    <i class="bi bi-journal-text"></i> Import Logs
+                <a href="/admin/core/importlog/"
+                   class="{% if request.path == '/admin/core/importlog/' %}active{% endif %}">
+                    <i class="bi bi-cloud-arrow-down"></i> <span>Import Logs</span>
                 </a>
             </li>
             <li>
                 <a href="/admin/">
-                    <i class="bi bi-gear"></i> Admin Console
+                    <i class="bi bi-gear"></i> <span>Admin Console</span>
                 </a>
             </li>
             {% endif %}
