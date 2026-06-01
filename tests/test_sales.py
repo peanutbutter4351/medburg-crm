@@ -19,10 +19,6 @@ from sales.services.postpaid_service import (
     get_postpaid_sales_queryset,
     get_postpaid_sales_report,
     get_postpaid_sales_summary,
-    get_doctor_wise_totals,
-    get_rep_wise_totals,
-    get_medicine_wise_totals,
-    get_monthly_totals,
     get_settlement_ledger_queryset,
     get_settlement_ledger_report,
     get_settlement_summary,
@@ -1281,61 +1277,6 @@ class PostpaidReportTests(TestCase):
         for key in required_keys:
             self.assertIn(key, row, f"Missing key: {key}")
 
-    def test_doctor_wise_totals_accuracy(self):
-        """
-        Doctor-wise totals should correctly attribute sales per doctor.
-        """
-        qs = get_postpaid_sales_queryset()
-        totals = list(get_doctor_wise_totals(qs))
-
-        doctor_names = [r["campaign__doctor__name"] for r in totals]
-        self.assertIn("Dr. Alpha", doctor_names)
-        self.assertIn("Dr. Beta",  doctor_names)
-
-        alpha = next(r for r in totals if r["campaign__doctor__name"] == "Dr. Alpha")
-        # Dr. Alpha: 300 + 400 = 700
-        self.assertEqual(alpha["total_value"], Decimal("700.00"))
-        self.assertEqual(alpha["total_qty"], 5)
-
-        beta = next(r for r in totals if r["campaign__doctor__name"] == "Dr. Beta")
-        # Dr. Beta: 500
-        self.assertEqual(beta["total_value"], Decimal("500.00"))
-
-    def test_rep_wise_totals(self):
-        """Rep-wise totals must aggregate per rep across all their sales."""
-        qs  = get_postpaid_sales_queryset()
-        rep_totals = list(get_rep_wise_totals(qs))
-        usernames = [r["rep__username"] for r in rep_totals]
-        self.assertIn("mr9_rep1", usernames)
-        self.assertIn("mr9_rep2", usernames)
-
-        rep1 = next(r for r in rep_totals if r["rep__username"] == "mr9_rep1")
-        self.assertEqual(rep1["total_value"], Decimal("700.00"))  # 300+400
-
-    def test_medicine_wise_totals(self):
-        """Medicine-wise totals must aggregate per medicine across all sales."""
-        qs = get_postpaid_sales_queryset()
-        med_totals = list(get_medicine_wise_totals(qs))
-        names = [r["medicine__name"] for r in med_totals]
-        self.assertIn("Med X", names)
-        self.assertIn("Med Y", names)
-
-        med_x = next(r for r in med_totals if r["medicine__name"] == "Med X")
-        # Med X: 3 (camp A1) + 5 (camp B1) = 8 qty, 300 + 500 = 800 value
-        self.assertEqual(med_x["total_qty"], 8)
-        self.assertEqual(med_x["total_value"], Decimal("800.00"))
-
-    def test_monthly_totals(self):
-        """Monthly totals must group by month/year correctly."""
-        qs = get_postpaid_sales_queryset()
-        months = list(get_monthly_totals(qs))
-        periods = [(r["campaign__year"], r["campaign__month"]) for r in months]
-        self.assertIn((2026, 1), periods)
-        self.assertIn((2026, 2), periods)
-
-        jan = next(r for r in months if r["campaign__month"] == 1)
-        self.assertEqual(jan["total_value"], Decimal("700.00"))
-
     # ── B. Filter correctness ───────────────────────────────────────────
 
     def test_filter_by_doctor(self):
@@ -1483,24 +1424,16 @@ class PostpaidReportTests(TestCase):
         summary = get_postpaid_sales_summary(qs)
         rows    = get_postpaid_sales_report(qs)
         summary["_rows"]            = rows
-        summary["_doctor_totals"]   = list(get_doctor_wise_totals(qs))
-        summary["_rep_totals"]      = list(get_rep_wise_totals(qs))
-        summary["_medicine_totals"] = list(get_medicine_wise_totals(qs))
-        summary["_monthly_totals"]  = list(get_monthly_totals(qs))
 
-        buf = export_postpaid_sales_to_excel(rows, summary)
+        buf = export_postpaid_sales_to_excel(qs, summary)
         self.assertIsInstance(buf, BytesIO)
         self.assertGreater(len(buf.getvalue()), 0)
 
         buf.seek(0)
         wb = load_workbook(buf)
-        # 5 sheets expected
-        self.assertEqual(len(wb.sheetnames), 5)
+        # 1 sheet expected
+        self.assertEqual(len(wb.sheetnames), 1)
         self.assertIn("Sales Detail", wb.sheetnames)
-        self.assertIn("By Doctor",    wb.sheetnames)
-        self.assertIn("By Rep",       wb.sheetnames)
-        self.assertIn("By Medicine",  wb.sheetnames)
-        self.assertIn("By Month",     wb.sheetnames)
 
     def test_postpaid_sales_excel_data_rows(self):
         """
@@ -1523,7 +1456,7 @@ class PostpaidReportTests(TestCase):
         )
         summary = _summary(qs)
         rows    = _report(qs)
-        for k in ["_rows", "_doctor_totals", "_rep_totals", "_medicine_totals", "_monthly_totals"]:
+        for k in ["_rows"]:
             summary[k] = []
         summary["_rows"] = rows
 
@@ -1581,10 +1514,10 @@ class PostpaidReportTests(TestCase):
         qs      = get_postpaid_sales_queryset(month=12, year=2025)  # no data
         summary = get_postpaid_sales_summary(qs)
         rows    = get_postpaid_sales_report(qs)
-        for k in ["_rows", "_doctor_totals", "_rep_totals", "_medicine_totals", "_monthly_totals"]:
+        for k in ["_rows"]:
             summary[k] = []
 
-        buf = export_postpaid_sales_to_excel(rows, summary)
+        buf = export_postpaid_sales_to_excel(qs, summary)
         buf.seek(0)
         wb = load_workbook(buf)
         self.assertIn("Sales Detail", wb.sheetnames)
@@ -1596,3 +1529,54 @@ class PostpaidReportTests(TestCase):
         buf2.seek(0)
         wb2 = load_workbook(buf2)
         self.assertIn("Settlement Ledger", wb2.sheetnames)
+
+    def test_campaign_monitor_view_shows_all(self):
+        """
+        The Campaign Monitor (postpaid_report_view) must show all campaigns
+        regardless of status.
+        """
+        self.client.force_login(self.admin)
+        from django.urls import reverse
+        response = self.client.get(reverse("sales:postpaid_report"))
+        self.assertEqual(response.status_code, 200)
+        campaigns = response.context["campaigns"]
+        statuses = {c.status for c in campaigns}
+        # camp_a1 (Open), camp_b1 (Partial) are active
+        self.assertIn(PostpaidCampaign.STATUS_OPEN, statuses)
+        self.assertIn(PostpaidCampaign.STATUS_PARTIAL, statuses)
+        # camp_settled (Settled) should ALSO be included
+        self.assertIn(PostpaidCampaign.STATUS_SETTLED, statuses)
+
+    def test_settlement_ledger_view_filters_closed(self):
+        """
+        The Settlement Ledger view must only show closed campaigns (Settled, Locked)
+        and filter out active ones.
+        """
+        self.client.force_login(self.admin)
+        from django.urls import reverse
+        response = self.client.get(reverse("sales:settlement_ledger"))
+        self.assertEqual(response.status_code, 200)
+        rows = response.context["rows"]
+        statuses = {r["status"] for r in rows}
+        # Settled should be present
+        self.assertIn(PostpaidCampaign.STATUS_SETTLED, statuses)
+        # Open and Partial (active) should be excluded
+        self.assertNotIn(PostpaidCampaign.STATUS_OPEN, statuses)
+        self.assertNotIn(PostpaidCampaign.STATUS_PARTIAL, statuses)
+
+    def test_export_views_return_ok(self):
+        """
+        The export views must return Excel file responses without crashes.
+        """
+        self.client.force_login(self.admin)
+        from django.urls import reverse
+        # Export sales
+        response = self.client.get(reverse("sales:export_postpaid_sales"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        # Export ledger
+        response = self.client.get(reverse("sales:export_settlement_ledger"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+

@@ -310,58 +310,6 @@ def get_postpaid_sales_summary(qs):
     }
 
 
-def get_doctor_wise_totals(qs):
-    """Aggregate PostpaidSaleEntry rows grouped by doctor."""
-    return (
-        qs.values("campaign__doctor__name")
-        .annotate(
-            total_qty=Coalesce(Sum("quantity"), Value(0)),
-            total_value=Coalesce(Sum("value_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-            total_commission=Coalesce(Sum("commission_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-        )
-        .order_by("-total_value")
-    )
-
-
-def get_rep_wise_totals(qs):
-    """Aggregate PostpaidSaleEntry rows grouped by rep."""
-    return (
-        qs.values("rep__first_name", "rep__last_name", "rep__username")
-        .annotate(
-            total_qty=Coalesce(Sum("quantity"), Value(0)),
-            total_value=Coalesce(Sum("value_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-            total_commission=Coalesce(Sum("commission_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-        )
-        .order_by("-total_value")
-    )
-
-
-def get_medicine_wise_totals(qs):
-    """Aggregate PostpaidSaleEntry rows grouped by medicine."""
-    return (
-        qs.values("medicine__name", "medicine__brand")
-        .annotate(
-            total_qty=Coalesce(Sum("quantity"), Value(0)),
-            total_value=Coalesce(Sum("value_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-            total_commission=Coalesce(Sum("commission_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-        )
-        .order_by("-total_value")
-    )
-
-
-def get_monthly_totals(qs):
-    """Aggregate PostpaidSaleEntry rows grouped by month/year."""
-    return (
-        qs.values("campaign__year", "campaign__month")
-        .annotate(
-            total_qty=Coalesce(Sum("quantity"), Value(0)),
-            total_value=Coalesce(Sum("value_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-            total_commission=Coalesce(Sum("commission_at_sale"), Value(Decimal("0")), output_field=DecimalField()),
-        )
-        .order_by("-campaign__year", "-campaign__month")
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # D. Settlement Ledger Report — PostpaidCampaign level
 # ─────────────────────────────────────────────────────────────────────────────
@@ -575,74 +523,6 @@ def export_postpaid_sales_to_excel(sales_qs, summary):
         ("Total Sales Value (₹)", summary["total_value"],     True),
         ("Total Commission (₹)", summary["total_commission"], True),
     ], row + 2)
-
-    # ── Sheet 2: By Doctor ───────────────────────────────────────
-    ws2 = wb.create_sheet("By Doctor")
-    ws2["A1"].value = "Sales by Doctor"
-    ws2["A1"].font  = Font(name="Calibri", bold=True, size=13, color="1E293B")
-    dr = _apply_header_row(ws2, _DOCTOR_COLS, 3)
-    for rec in summary.get("_doctor_totals", []):
-        ws2.cell(row=dr, column=1, value=rec["campaign__doctor__name"])
-        ws2.cell(row=dr, column=2, value=rec["total_qty"]).alignment = Alignment(horizontal="center")
-        c3 = ws2.cell(row=dr, column=3, value=float(rec["total_value"]))
-        c3.number_format = _CURRENCY_FMT
-        c4 = ws2.cell(row=dr, column=4, value=float(rec["total_commission"]))
-        c4.number_format = _CURRENCY_FMT
-        for c in range(1, 5): ws2.cell(row=dr, column=c).border = _THIN_BORDER
-        dr += 1
-
-    # ── Sheet 3: By Rep ──────────────────────────────────────────
-    ws3 = wb.create_sheet("By Rep")
-    ws3["A1"].value = "Sales by Rep"
-    ws3["A1"].font  = Font(name="Calibri", bold=True, size=13, color="1E293B")
-    rr = _apply_header_row(ws3, _REP_COLS, 3)
-    for rec in summary.get("_rep_totals", []):
-        fn = rec.get("rep__first_name") or ""
-        ln = rec.get("rep__last_name")  or ""
-        un = rec.get("rep__username")   or ""
-        name = (f"{fn} {ln}".strip()) or un
-        ws3.cell(row=rr, column=1, value=name)
-        ws3.cell(row=rr, column=2, value=rec["total_qty"]).alignment = Alignment(horizontal="center")
-        c3 = ws3.cell(row=rr, column=3, value=float(rec["total_value"]))
-        c3.number_format = _CURRENCY_FMT
-        c4 = ws3.cell(row=rr, column=4, value=float(rec["total_commission"]))
-        c4.number_format = _CURRENCY_FMT
-        for c in range(1, 5): ws3.cell(row=rr, column=c).border = _THIN_BORDER
-        rr += 1
-
-    # ── Sheet 4: By Medicine ─────────────────────────────────────
-    ws4 = wb.create_sheet("By Medicine")
-    ws4["A1"].value = "Sales by Medicine"
-    ws4["A1"].font  = Font(name="Calibri", bold=True, size=13, color="1E293B")
-    mr = _apply_header_row(ws4, _MEDICINE_COLS, 3)
-    for rec in summary.get("_medicine_totals", []):
-        med_name  = rec.get("medicine__name") or "—"
-        med_brand = rec.get("medicine__brand") or ""
-        label = f"{med_name} ({med_brand})" if med_brand else med_name
-        ws4.cell(row=mr, column=1, value=label)
-        ws4.cell(row=mr, column=2, value=rec["total_qty"]).alignment = Alignment(horizontal="center")
-        c3 = ws4.cell(row=mr, column=3, value=float(rec["total_value"]))
-        c3.number_format = _CURRENCY_FMT
-        c4 = ws4.cell(row=mr, column=4, value=float(rec["total_commission"]))
-        c4.number_format = _CURRENCY_FMT
-        for c in range(1, 5): ws4.cell(row=mr, column=c).border = _THIN_BORDER
-        mr += 1
-
-    # ── Sheet 5: By Month ────────────────────────────────────────
-    ws5 = wb.create_sheet("By Month")
-    ws5["A1"].value = "Sales by Month"
-    ws5["A1"].font  = Font(name="Calibri", bold=True, size=13, color="1E293B")
-    mo = _apply_header_row(ws5, _MONTHLY_COLS, 3)
-    for rec in summary.get("_monthly_totals", []):
-        period = f"{rec['campaign__month']:02d}/{rec['campaign__year']}"
-        ws5.cell(row=mo, column=1, value=period).alignment = Alignment(horizontal="center")
-        ws5.cell(row=mo, column=2, value=rec["total_qty"]).alignment = Alignment(horizontal="center")
-        c3 = ws5.cell(row=mo, column=3, value=float(rec["total_value"]))
-        c3.number_format = _CURRENCY_FMT
-        c4 = ws5.cell(row=mo, column=4, value=float(rec["total_commission"]))
-        c4.number_format = _CURRENCY_FMT
-        for c in range(1, 5): ws5.cell(row=mo, column=c).border = _THIN_BORDER
-        mo += 1
 
     buf = BytesIO()
     wb.save(buf)

@@ -50,9 +50,6 @@
     <div class="data-card-body" style="padding: 0.75rem 1.25rem;">
         <div class="d-flex flex-wrap gap-3 align-items-center">
             <span class="text-crm-muted fw-semibold" style="font-size:.8rem;">STATUS:</span>
-            <span class="crm-badge pending">Awaiting Commission: {{ summary.awaiting_count }}</span>
-            <span class="crm-badge in-progress">Open: {{ summary.open_count }}</span>
-            <span class="crm-badge in-progress" style="background:rgba(59,130,246,.15);color:#1d4ed8;">Partial: {{ summary.partial_count }}</span>
             <span class="crm-badge completed">Settled: {{ summary.settled_count }}</span>
             <span class="crm-badge no-investment"><i class="bi bi-lock-fill"></i> Locked: {{ summary.locked_count }}</span>
         </div>
@@ -163,7 +160,9 @@
                         <th class="text-right">Paid (₹)</th>
                         <th class="text-right">Outstanding (₹)</th>
                         <th class="text-center">Status</th>
-                        <th class="text-center">Action</th>
+                        <th>Settled By</th>
+                        <th>Date</th>
+                        <th>Reason</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -205,16 +204,18 @@
                                 <i class="bi bi-lock-fill"></i> Locked
                             </span>
                             {% endif %}
-                            {% if row.settlement_reason != "—" %}
-                            <br><small class="text-crm-muted" style="font-size:.7rem;">{{ row.settlement_reason }}</small>
+                        </td>
+                        <td>{{ row.settled_by_name }}</td>
+                        <td>
+                            {% if row.is_locked and row.locked_at %}
+                                {{ row.locked_at|date:"d M Y" }} <small class="text-crm-muted">(Locked)</small>
+                            {% elif row.settled_at %}
+                                {{ row.settled_at|date:"d M Y" }}
+                            {% else %}
+                                <span class="text-crm-muted">—</span>
                             {% endif %}
                         </td>
-                        <td class="text-center">
-                            <a href="{% url 'sales:campaign_manage' campaign_id=row.campaign_id %}"
-                               class="btn-crm-outline btn-sm">
-                                <i class="bi bi-sliders"></i> Manage
-                            </a>
-                        </td>
+                        <td>{{ row.settlement_reason }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

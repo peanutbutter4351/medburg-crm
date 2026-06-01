@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.http import JsonResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseForbidden, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -35,10 +35,6 @@ from .services.postpaid_service import (
     get_postpaid_sales_queryset,
     get_postpaid_sales_report,
     get_postpaid_sales_summary,
-    get_doctor_wise_totals,
-    get_rep_wise_totals,
-    get_medicine_wise_totals,
-    get_monthly_totals,
     get_settlement_ledger_queryset,
     get_settlement_ledger_report,
     get_settlement_summary,
@@ -164,15 +160,24 @@ def postpaid_report_view(request):
     status = request.GET.get("status", "")
     search = request.GET.get("search", "").strip()
 
+    if status:
+        pass
+
     campaigns = get_campaign_queryset(
         doctor_id=doctor_id,
         month=month,
         year=year,
-        status=status,
+        status=status or None,
         search=search
     )
+
     summary = get_campaign_summary(campaigns)
     filter_options = get_campaign_filter_options()
+    filter_options["statuses"] = [
+        (PostpaidCampaign.STATUS_AWAITING_COMMISSION, "Awaiting Commission"),
+        (PostpaidCampaign.STATUS_OPEN, "Open"),
+        (PostpaidCampaign.STATUS_PARTIAL, "Partial"),
+    ]
 
     context = {
         "campaigns": campaigns,
@@ -418,19 +423,11 @@ def postpaid_sales_report_view(request):
     qs              = get_postpaid_sales_queryset(**filter_kwargs)
     summary         = get_postpaid_sales_summary(qs)
     rows            = get_postpaid_sales_report(qs)
-    doctor_totals   = list(get_doctor_wise_totals(qs))
-    rep_totals      = list(get_rep_wise_totals(qs))
-    medicine_totals = list(get_medicine_wise_totals(qs))
-    monthly_totals  = list(get_monthly_totals(qs))
     filter_options  = get_postpaid_report_filter_options()
 
     context = {
         "rows":             rows,
         "summary":          summary,
-        "doctor_totals":    doctor_totals,
-        "rep_totals":       rep_totals,
-        "medicine_totals":  medicine_totals,
-        "monthly_totals":   monthly_totals,
         "filter_options":   filter_options,
         "has_filters":      has_filters,
         # Sticky filter values
@@ -481,10 +478,6 @@ def export_postpaid_sales_view(request):
 
     # Pack aggregation tables into summary dict for multi-sheet export
     summary["_rows"]            = rows
-    summary["_doctor_totals"]   = list(get_doctor_wise_totals(qs))
-    summary["_rep_totals"]      = list(get_rep_wise_totals(qs))
-    summary["_medicine_totals"] = list(get_medicine_wise_totals(qs))
-    summary["_monthly_totals"]  = list(get_monthly_totals(qs))
 
     buf  = export_postpaid_sales_to_excel(rows, summary)
     ts   = _dt.now().strftime("%Y%m%d_%H%M")
@@ -516,15 +509,31 @@ def settlement_ledger_view(request):
     status    = request.GET.get("status", "").strip()
     search    = request.GET.get("search", "").strip()
 
-    has_filters = any([doctor_id, rep_id, month, year, status, search])
+    closed_statuses = [
+        PostpaidCampaign.STATUS_SETTLED,
+        PostpaidCampaign.STATUS_LOCKED
+    ]
+    if status and status in closed_statuses:
+        pass
+    else:
+        status = ""
 
-    qs      = get_settlement_ledger_queryset(
+    qs = get_settlement_ledger_queryset(
         doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
         status=status or None, search=search or None,
     )
+    if not status:
+        qs = qs.filter(status__in=closed_statuses)
+
     rows    = get_settlement_ledger_report(qs)
     summary = get_settlement_summary(qs)
     filter_options = get_postpaid_report_filter_options()
+    filter_options["statuses"] = [
+        (PostpaidCampaign.STATUS_SETTLED, "Settled"),
+        (PostpaidCampaign.STATUS_LOCKED, "Locked"),
+    ]
+
+    has_filters = any([doctor_id, rep_id, month, year, status, search])
 
     context = {
         "rows":            rows,
@@ -555,10 +564,22 @@ def export_settlement_ledger_view(request):
     status    = request.GET.get("status", "").strip()
     search    = request.GET.get("search", "").strip()
 
-    qs      = get_settlement_ledger_queryset(
+    closed_statuses = [
+        PostpaidCampaign.STATUS_SETTLED,
+        PostpaidCampaign.STATUS_LOCKED
+    ]
+    if status and status in closed_statuses:
+        pass
+    else:
+        status = ""
+
+    qs = get_settlement_ledger_queryset(
         doctor_id=doctor_id, rep_id=rep_id, month=month, year=year,
         status=status or None, search=search or None,
     )
+    if not status:
+        qs = qs.filter(status__in=closed_statuses)
+
     rows    = get_settlement_ledger_report(qs)
     summary = get_settlement_summary(qs)
 
