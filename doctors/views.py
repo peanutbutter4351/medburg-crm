@@ -17,6 +17,10 @@ from .services.doctor_service import (
     get_unified_activity_feed,
     get_active_postpaid_campaigns,
 )
+from sales.services.analytics_service import (
+    get_admin_dashboard_analytics,
+    get_rep_dashboard_analytics,
+)
 
 
 @login_required
@@ -56,6 +60,9 @@ def doctor_dashboard(request):
         unified_feed = get_unified_activity_feed()
         active_campaigns = get_active_postpaid_campaigns()
 
+        # MR-9.2 Analytics
+        admin_analytics = get_admin_dashboard_analytics()
+
         context = {
             "doctors": doctors,
             "summary": summary,
@@ -65,6 +72,7 @@ def doctor_dashboard(request):
             "unified_feed": unified_feed,
             "active_campaigns": active_campaigns,
             "alerts": alerts,
+            "admin_analytics": admin_analytics,
             # Pass current filter values back to template for sticky selects
             "current_rep": rep_id,
             "current_location": location,
@@ -76,8 +84,10 @@ def doctor_dashboard(request):
         # Rep dashboard view
         from datetime import date
         rep_data = get_rep_dashboard_data(request.user)
+        rep_analytics = get_rep_dashboard_analytics(request.user)
         context = {
             "rep_data": rep_data,
+            "rep_analytics": rep_analytics,
             "today": date.today(),
         }
         return render(request, "doctors/rep_dashboard.html", context)

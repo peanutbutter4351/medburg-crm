@@ -413,18 +413,77 @@
     </div>
 </div>
 
-<!-- ─── Visualizations Container (MR-4I Placeholder) ─── -->
-<div class="card mb-4" style="border: 1px dashed var(--border-color); border-radius: var(--radius-md); background: rgba(0,0,0,0.02);">
-    <div class="card-body text-center py-5 text-muted">
-        <i class="bi bi-bar-chart-line" style="font-size: 2.5rem; color: var(--text-muted); opacity: 0.5;"></i>
-        <h5 class="mt-3" style="font-weight: 600;">Analytics & KPI Visualizations</h5>
-        <p class="mb-0 small">Interactive trend charts, ROI distributions, and performance graphs will be enabled in MR-4I.</p>
+<!-- ─── Analytics & KPI Visualizations ─── -->
+<div class="row mb-5">
+    <!-- Prepaid Monthly Trend -->
+    <div class="col-lg-6 mb-4">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-graph-up text-primary me-2"></i> Monthly Prepaid Sales Trend</h5>
+            </div>
+            <div class="data-card-body">
+                <canvas id="prepaidMonthlyChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Postpaid Monthly Trend -->
+    <div class="col-lg-6 mb-4">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-graph-up text-success me-2"></i> Monthly Postpaid Sales Trend</h5>
+            </div>
+            <div class="data-card-body">
+                <canvas id="postpaidMonthlyChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revenue Split -->
+    <div class="col-lg-4 mb-4">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-pie-chart-fill text-warning me-2"></i> Revenue Split</h5>
+            </div>
+            <div class="data-card-body d-flex justify-content-center align-items-center">
+                <div style="position: relative; width: 100%; max-width: 300px;">
+                    <canvas id="revenueSplitChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Reps -->
+    <div class="col-lg-4 mb-4">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-person-badge-fill text-info me-2"></i> Top Performing Reps</h5>
+            </div>
+            <div class="data-card-body">
+                <canvas id="topRepsChart" height="250"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Doctors -->
+    <div class="col-lg-4 mb-4">
+        <div class="data-card h-100">
+            <div class="data-card-header">
+                <h5 class="data-card-title"><i class="bi bi-heart-pulse-fill text-danger me-2"></i> Top Performing Doctors</h5>
+            </div>
+            <div class="data-card-body">
+                <canvas id="topDoctorsChart" height="250"></canvas>
+            </div>
+        </div>
     </div>
 </div>
+
+{{ admin_analytics|json_script:"admin-analytics-data" }}
 
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     (function () {
         const searchInput = document.querySelector('input[name="search"]');
@@ -441,5 +500,142 @@
             });
         });
     })();
+
+    // ── Chart.js Initialization ──
+    document.addEventListener("DOMContentLoaded", function() {
+        const dataNode = document.getElementById('admin-analytics-data');
+        if (!dataNode) return;
+        const analytics = JSON.parse(dataNode.textContent);
+        
+        // Common Chart Options
+        Chart.defaults.font.family = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        Chart.defaults.color = "#64748b";
+        
+        const currencyFormatter = (value) => {
+            if (value >= 1000000) return '₹' + (value / 1000000).toFixed(1) + 'M';
+            if (value >= 1000) return '₹' + (value / 1000).toFixed(1) + 'k';
+            return '₹' + value;
+        };
+
+        const createLineChart = (ctxId, label, dataObj, colorHex) => {
+            const ctx = document.getElementById(ctxId);
+            if (!ctx) return;
+            const hasData = dataObj.data.some(d => d > 0);
+            if (!hasData) {
+                ctx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
+                return;
+            }
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dataObj.labels,
+                    datasets: [{
+                        label: label,
+                        data: dataObj.data,
+                        borderColor: colorHex,
+                        backgroundColor: colorHex + '20',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                        pointBackgroundColor: colorHex,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            ticks: { callback: currencyFormatter }
+                        }
+                    }
+                }
+            });
+        };
+
+        const createBarChart = (ctxId, label, dataObj, colorHex) => {
+            const ctx = document.getElementById(ctxId);
+            if (!ctx) return;
+            const hasData = dataObj.data.some(d => d > 0);
+            if (!hasData) {
+                ctx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
+                return;
+            }
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dataObj.labels,
+                    datasets: [{
+                        label: label,
+                        data: dataObj.data,
+                        backgroundColor: colorHex + '99',
+                        borderColor: colorHex,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            ticks: { callback: currencyFormatter }
+                        }
+                    }
+                }
+            });
+        };
+
+        // 1. Prepaid Monthly
+        createLineChart('prepaidMonthlyChart', 'Prepaid Sales', analytics.prepaid_monthly, '#0ea5e9'); // primary
+        
+        // 2. Postpaid Monthly
+        createLineChart('postpaidMonthlyChart', 'Postpaid Sales', analytics.postpaid_monthly, '#10b981'); // success
+
+        // 3. Revenue Split
+        const splitCtx = document.getElementById('revenueSplitChart');
+        if (splitCtx) {
+            const hasData = analytics.revenue_split.data.some(d => d > 0);
+            if (!hasData) {
+                splitCtx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
+            } else {
+                new Chart(splitCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: analytics.revenue_split.labels,
+                        datasets: [{
+                            data: analytics.revenue_split.data,
+                            backgroundColor: ['#0ea5e9', '#10b981'],
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        cutout: '65%',
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.label + ': ₹' + context.raw.toLocaleString();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 4. Top Reps
+        createBarChart('topRepsChart', 'Sales', analytics.top_reps, '#6366f1'); // indigo/info-like
+
+        // 5. Top Doctors
+        createBarChart('topDoctorsChart', 'Sales', analytics.top_doctors, '#f43f5e'); // rose/danger-like
+    });
 </script>
 {% endblock %}

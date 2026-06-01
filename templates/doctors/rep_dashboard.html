@@ -133,25 +133,19 @@
 <div class="row g-4 mb-4">
     <!-- Status Detail List -->
     <div class="col-12 col-md-4">
-        <div class="data-card padded">
+        <!-- Campaign Status Distribution -->
+        <div class="data-card padded mb-4">
             <h6 class="fw-bold mb-3"><i class="bi bi-pie-chart-fill me-2"></i>Campaign Status Distribution</h6>
-            <div class="d-flex flex-column gap-3">
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="text-muted"><i class="bi bi-circle-fill text-warning me-2 small"></i>Awaiting Commission</span>
-                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.awaiting_commission }}</span>
-                </div>
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="text-muted"><i class="bi bi-circle-fill text-primary me-2 small"></i>Open</span>
-                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.open }}</span>
-                </div>
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="text-muted"><i class="bi bi-circle-fill text-info me-2 small"></i>Partially Paid</span>
-                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.partial }}</span>
-                </div>
-                <div class="d-flex align-items-center justify-content-between">
-                    <span class="text-muted"><i class="bi bi-circle-fill text-success me-2 small"></i>Settled</span>
-                    <span class="fw-bold">{{ rep_data.postpaid.status_summary.settled }}</span>
-                </div>
+            <div style="position: relative; width: 100%; height: 220px;" class="d-flex justify-content-center align-items-center">
+                <canvas id="campaignDistributionChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Monthly Postpaid Sales Trend -->
+        <div class="data-card padded">
+            <h6 class="fw-bold mb-3"><i class="bi bi-graph-up text-success me-2"></i>Monthly Postpaid Sales</h6>
+            <div style="position: relative; width: 100%; height: 200px;" class="d-flex justify-content-center align-items-center">
+                <canvas id="repMonthlyPostpaidChart"></canvas>
             </div>
         </div>
     </div>
@@ -200,4 +194,109 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+{{ rep_analytics|json_script:"rep-analytics-data" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const dataNode = document.getElementById('rep-analytics-data');
+        if (!dataNode) return;
+        const analytics = JSON.parse(dataNode.textContent);
+        
+        // Common Chart Options
+        Chart.defaults.font.family = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        Chart.defaults.color = "#64748b";
+
+        const currencyFormatter = (value) => {
+            if (value >= 1000000) return '₹' + (value / 1000000).toFixed(1) + 'M';
+            if (value >= 1000) return '₹' + (value / 1000).toFixed(1) + 'k';
+            return '₹' + value;
+        };
+        
+        // 1. Campaign Distribution Doughnut
+        const distCtx = document.getElementById('campaignDistributionChart');
+        if (distCtx) {
+            const hasData = analytics.campaign_distribution.data.some(d => d > 0);
+            if (!hasData) {
+                distCtx.parentElement.innerHTML = '<div class="text-muted">No Data Available</div>';
+            } else {
+                new Chart(distCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: analytics.campaign_distribution.labels,
+                        datasets: [{
+                            data: analytics.campaign_distribution.data,
+                            backgroundColor: ['#f59e0b', '#0ea5e9', '#6366f1', '#10b981', '#ef4444'],
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '60%',
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 12
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 2. Monthly Postpaid Sales Line Chart
+        const lineCtx = document.getElementById('repMonthlyPostpaidChart');
+        if (lineCtx) {
+            const hasData = analytics.monthly_postpaid_sales.data.some(d => d > 0);
+            if (!hasData) {
+                lineCtx.parentElement.innerHTML = '<div class="text-muted">No Data Available</div>';
+            } else {
+                new Chart(lineCtx, {
+                    type: 'line',
+                    data: {
+                        labels: analytics.monthly_postpaid_sales.labels,
+                        datasets: [{
+                            label: 'Postpaid Sales',
+                            data: analytics.monthly_postpaid_sales.data,
+                            borderColor: '#10b981',
+                            backgroundColor: '#10b98120',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            pointBackgroundColor: '#10b981',
+                            pointRadius: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: {
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: { size: 10 }
+                                }
+                            },
+                            y: { 
+                                beginAtZero: true,
+                                ticks: { 
+                                    callback: currencyFormatter,
+                                    font: { size: 10 }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    });
+</script>
 {% endblock %}
