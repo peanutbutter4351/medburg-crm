@@ -253,9 +253,9 @@ class Investment(BaseModel):
         """
         ARCH-3B (W-2): Block manually setting status = completed when balance > 0.
 
-        Investment auto-completion is handled by refresh_status() which fires
-        after every SalesEntry save.  Direct manual status overrides via the
-        admin form are blocked here unless the balance is already <= 0.
+        Investment status transition to completed is strictly a manual action
+        performed by administrators via Django Admin. Direct manual status
+        overrides are blocked here unless the balance is already <= 0.
 
         Superusers can bypass this guard by editing the database directly,
         which is intentional for emergency corrections.
@@ -270,24 +270,18 @@ class Investment(BaseModel):
                 "status": (
                     f"Cannot mark this investment as Completed: "
                     f"balance is still \u20b9{self.balance:,.2f}. "
-                    "Investment auto-completes when balance \u2264 \u20b90 via sales entries."
+                    "Investment can only be marked as Completed when balance \u2264 \u20b90."
                 )
             })
 
     def refresh_status(self):
         """
-        Automatically set:
-        completed if balance <= 0
-        otherwise in_progress
-        """
-        if self.balance <= 0:
-            new_status = self.STATUS_COMPLETED
-        else:
-            new_status = self.STATUS_IN_PROGRESS
+        No-op under the manual completion lifecycle model.
 
-        if self.status != new_status:
-            self.status = new_status
-            self.save(update_fields=["status", "updated_at"])
+        Investment status is strictly managed manually by administrators via
+        Django Admin. Status is never automatically updated based on balance.
+        """
+        pass
 
 
 
