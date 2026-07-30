@@ -139,3 +139,34 @@ class AnalyticsServiceTest(TestCase):
         content = response.content.decode('utf-8')
         self.assertIn('<script id="rep-analytics-data" type="application/json">', content)
         self.assertIn('"campaign_distribution"', content)
+
+    def test_dashboard_view_section_parameter(self):
+        """Test section parameter logic and UI state rendering in admin dashboard view."""
+        self.client.force_login(self.admin)
+        
+        # Test default section is home
+        response = self.client.get(reverse("doctors:dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["current_section"], "home")
+        
+        # Test valid prepaid section
+        response = self.client.get(reverse("doctors:dashboard") + "?section=prepaid")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["current_section"], "prepaid")
+        content = response.content.decode('utf-8')
+        self.assertIn('name="section" id="active-section-input" value="prepaid"', content)
+        self.assertIn('id="btn-prepaid">PREPAID</button>', content)
+        self.assertIn('class="switcher-btn active" onclick="switchDashboardSection(\'prepaid\')"', content)
+        
+        # Test valid postpaid section
+        response = self.client.get(reverse("doctors:dashboard") + "?section=postpaid")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["current_section"], "postpaid")
+        content = response.content.decode('utf-8')
+        self.assertIn('name="section" id="active-section-input" value="postpaid"', content)
+        
+        # Test invalid section resets to default (home)
+        response = self.client.get(reverse("doctors:dashboard") + "?section=invalid_tab")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["current_section"], "home")
+

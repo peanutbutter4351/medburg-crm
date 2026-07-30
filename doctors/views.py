@@ -40,6 +40,9 @@ def doctor_dashboard(request):
         location = request.GET.get("location", "")
         status   = request.GET.get("status", "")
         search   = request.GET.get("search", "").strip()
+        section  = request.GET.get("section", "home")
+        if section not in ["home", "prepaid", "postpaid"]:
+            section = "home"
 
         # ── Fetch Prepaid data via service ───────────────────────
         doctors = get_dashboard_queryset(
@@ -78,6 +81,7 @@ def doctor_dashboard(request):
             "current_location": location,
             "current_status": status,
             "current_search": search,
+            "current_section": section,
         }
         return render(request, "doctors/admin_dashboard.html", context)
     else:

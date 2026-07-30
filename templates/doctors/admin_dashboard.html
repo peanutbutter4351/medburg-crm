@@ -23,13 +23,13 @@
 <!-- ─── Dashboard Navigation ─── -->
 <div class="d-flex justify-content-center mb-4 mt-2">
     <div class="crm-switcher shadow-sm">
-        <button type="button" class="switcher-btn" onclick="switchDashboardSection('prepaid')" id="btn-prepaid">PREPAID</button>
-        <button type="button" class="switcher-btn active" onclick="switchDashboardSection('home')" id="btn-home">HOME</button>
-        <button type="button" class="switcher-btn" onclick="switchDashboardSection('postpaid')" id="btn-postpaid">POSTPAID</button>
+        <button type="button" class="switcher-btn {% if current_section == 'prepaid' %}active{% endif %}" onclick="switchDashboardSection('prepaid')" id="btn-prepaid">PREPAID</button>
+        <button type="button" class="switcher-btn {% if current_section == 'home' or not current_section %}active{% endif %}" onclick="switchDashboardSection('home')" id="btn-home">HOME</button>
+        <button type="button" class="switcher-btn {% if current_section == 'postpaid' %}active{% endif %}" onclick="switchDashboardSection('postpaid')" id="btn-postpaid">POSTPAID</button>
     </div>
 </div>
 
-<div id="dashboard-prepaid-section" style="display: none;">
+<div id="dashboard-prepaid-section" style="{% if current_section == 'prepaid' %}display: block;{% else %}display: none;{% endif %}">
 <!-- ─── Prepaid Section ───────────────────────── -->
 <h4 class="mb-3" style="font-weight: 700; color: var(--text-primary);">Prepaid Engine</h4>
 
@@ -81,6 +81,7 @@
 <!-- ─── Filter Bar ─────────────────────────────── -->
 <div class="filter-card mb-4">
     <form method="get">
+        <input type="hidden" name="section" id="active-section-input" value="{{ current_section|default:'home' }}">
         <div class="row g-3 align-items-end">
             <!-- Search -->
             <div class="col-12 col-md-3">
@@ -243,7 +244,7 @@
 
 </div>
 
-<div id="dashboard-postpaid-section" style="display: none;">
+<div id="dashboard-postpaid-section" style="{% if current_section == 'postpaid' %}display: block;{% else %}display: none;{% endif %}">
 <!-- ─── Postpaid Section ──────────────────────── -->
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h4 class="mb-0" style="font-weight: 700; color: var(--text-primary);">Postpaid Engine Summary</h4>
@@ -366,7 +367,7 @@
 
 </div>
 
-<div id="dashboard-home-section">
+<div id="dashboard-home-section" style="{% if current_section == 'home' or not current_section %}display: block;{% else %}display: none;{% endif %}">
 <!-- ─── Analytics & KPI Visualizations ─── -->
 <div class="row mb-5">
     <!-- Prepaid Monthly Trend -->
@@ -534,11 +535,18 @@
                 btn.classList.remove('active');
             }
         });
+        const input = document.getElementById('active-section-input');
+        if (input) {
+            input.value = section;
+        }
     }
 
     // ── Chart.js Initialization ──
 
     document.addEventListener("DOMContentLoaded", function() {
+        const initialSection = "{{ current_section|default:'home' }}";
+        switchDashboardSection(initialSection);
+
         const dataNode = document.getElementById('admin-analytics-data');
         if (!dataNode) return;
         const analytics = JSON.parse(dataNode.textContent);
