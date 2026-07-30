@@ -261,7 +261,7 @@ def get_postpaid_dashboard_summary():
 def get_dashboard_alerts():
     """
     Return a list of alerts: awaiting commission older than 3 days (yellow) and 7 days (red),
-    plus prepaid investment overruns, and settlement integrity anomalies.
+    and settlement integrity anomalies.
     """
     from sales.models import PostpaidCampaign
     from django.utils import timezone
@@ -308,16 +308,6 @@ def get_dashboard_alerts():
             alerts.append({
                 "type": "warning",
                 "message": f"⚠️ WARNING: Campaign for Dr. {camp.doctor.name} ({camp.month:02d}/{camp.year}) has been Awaiting Commission for {age_days} days."
-            })
-            
-    # 3. Prepaid Overrun alerts (balance < 0)
-    from doctors.models import Investment
-    overruns = Investment.objects.filter(status=Investment.STATUS_IN_PROGRESS).select_related("doctor")
-    for inv in overruns:
-        if inv.balance < 0:
-            alerts.append({
-                "type": "info",
-                "message": f"📈 Prepaid Overrun: Investment for Dr. {inv.doctor.name} has exceeded ROI target by ₹{abs(inv.balance):,.2f}."
             })
             
     # FUTURE ENHANCEMENT (MR-4I or later): Add stalled payout alert for STATUS_PARTIAL campaigns with no payment > N days.

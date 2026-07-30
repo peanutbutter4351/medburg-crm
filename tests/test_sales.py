@@ -355,6 +355,10 @@ class PrepaidDashboardTests(TestCase):
             entry_date=date.today() - timedelta(days=50)
         )
         inv_completed.refresh_from_db()
+        self.assertEqual(inv_completed.status, Investment.STATUS_IN_PROGRESS)
+        # Admin manually sets status to completed (allowed since balance <= 0)
+        inv_completed.status = Investment.STATUS_COMPLETED
+        inv_completed.save()
         self.assertEqual(inv_completed.status, Investment.STATUS_COMPLETED)
         # Ensure snapshot populated correctly
         self.assertEqual(entry_completed.value_at_sale, Decimal("2500.00"))
@@ -444,6 +448,8 @@ class DashboardStabilizationTests(TestCase):
             quantity=20,
             entry_date=date.today() - timedelta(days=50)
         )
+        inv_comp.status = Investment.STATUS_COMPLETED
+        inv_comp.save()
         inv_comp.refresh_from_db()
         self.assertEqual(inv_comp.status, Investment.STATUS_COMPLETED)
 
@@ -463,8 +469,8 @@ class DashboardStabilizationTests(TestCase):
             quantity=30,
             entry_date=date.today()
         )
-        # Bypassing the save logic to force this active investment to remain in_progress for testing >100% recovery rate
-        Investment.objects.filter(pk=inv_active.pk).update(status=Investment.STATUS_IN_PROGRESS)
+        inv_active.refresh_from_db()
+        self.assertEqual(inv_active.status, Investment.STATUS_IN_PROGRESS)
 
         metrics = get_prepaid_admin_metrics()
         self.assertAlmostEqual(metrics["recovery_rate"], Decimal("150.00"))
