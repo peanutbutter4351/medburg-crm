@@ -93,6 +93,12 @@
                     <i class="bi bi-journal-text"></i> <span>Settlement Ledger</span>
                 </a>
             </li>
+            <li>
+                <a href="{% url 'reports:postpaid_doctor_report' %}"
+                   class="{% if request.resolver_match.url_name == 'postpaid_doctor_report' %}active{% endif %}">
+                    <i class="bi bi-person-badge"></i> <span>Postpaid Doctors Report</span>
+                </a>
+            </li>
             {% endif %}
 
             {% if user.is_admin_user %}
