@@ -27,7 +27,7 @@ from io import BytesIO
 
 from django.db.models import (
     Case, CharField, F, Subquery, Sum, Value, When,
-    DecimalField, OuterRef,
+    DecimalField, OuterRef, Count, Q,
 )
 from django.db.models.functions import Coalesce
 
@@ -461,3 +461,358 @@ def export_to_excel(roi_rows, summary):
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+# ─── Consolidated Prepaid Doctor Report ───────────────────────────
+
+def get_prepaid_doctor_report_queryset(
+    *,
+    doctor_id=None,
+    location=None,
+    medicine_id=None,
+    from_date=None,
+    to_date=None,
+    status=None,
+):
+    """
+    Return a Doctor queryset annotated with:
+    - total_investment (Sum of Investment.amount)
+    - total_expected_return (Sum of Investment.amount * Investment.roi_ratio)
+    - total_returns (Sum of SalesEntry.value_at_sale)
+    - recovery_pct (Total Returns / Total Expected Return * 100)
+    
+    Each row represents one doctor. If a doctor has multiple prepaid investments,
+    we aggregate all investments (and their returns) matching the status filter
+    into a single row.
+    """
+    # Base queryset: active prepaid doctors who have at least one investment
+    qs = Doctor.objects.filter(is_active=True, mode="prepaid", investments__isnull=False).distinct()
+
+    # ── Subquery 1: Total Investment per Doctor ──
+    investment_filters = Q(doctor_id=OuterRef("pk"))
+    if status:
+        investment_filters &= Q(status=status)
+
+    investment_subquery = (
+        Investment.objects
+        .filter(investment_filters)
+        .values("doctor_id")
+        .annotate(total=Sum("amount"))
+        .values("total")[:1]
+    )
+
+    # ── Subquery 2: Total Expected Return per Doctor ──
+    expected_filters = Q(doctor_id=OuterRef("pk"))
+    if status:
+        expected_filters &= Q(status=status)
+
+    expected_subquery = (
+        Investment.objects
+        .filter(expected_filters)
+        .values("doctor_id")
+        .annotate(total=Sum(F("amount") * F("roi_ratio")))
+        .values("total")[:1]
+    )
+
+    # ── Subquery 3: Total Returns (Sales) per Doctor ──
+    sales_filters = Q(doctor_id=OuterRef("pk"), investment__isnull=False)
+    if status:
+        sales_filters &= Q(investment__status=status)
+    if medicine_id:
+        sales_filters &= Q(medicine_id=medicine_id)
+    if from_date:
+        sales_filters &= Q(entry_date__gte=from_date)
+    if to_date:
+        sales_filters &= Q(entry_date__lte=to_date)
+
+    sales_subquery = (
+        SalesEntry.objects
+        .filter(sales_filters)
+        .values("doctor_id")
+        .annotate(total=Sum("value_at_sale"))
+        .values("total")[:1]
+    )
+
+    # Annotate values
+    qs = qs.annotate(
+        total_investment=Coalesce(
+            Subquery(investment_subquery, output_field=DecimalField()),
+            Value(Decimal("0")),
+            output_field=DecimalField(),
+        ),
+        total_expected_return=Coalesce(
+            Subquery(expected_subquery, output_field=DecimalField()),
+            Value(Decimal("0")),
+            output_field=DecimalField(),
+        ),
+        total_returns=Coalesce(
+            Subquery(sales_subquery, output_field=DecimalField()),
+            Value(Decimal("0")),
+            output_field=DecimalField(),
+        )
+    ).select_related("assigned_rep")
+
+    # Apply doctor-level filters
+    if doctor_id:
+        qs = qs.filter(id=doctor_id)
+    if location:
+        qs = qs.filter(location__iexact=location)
+
+    # If a status filter is applied, we must only return doctors who have investments matching that status.
+    if status:
+        qs = qs.filter(investments__status=status).distinct()
+
+    # Sort alphabetically by Doctor Name (A-Z)
+    return qs.order_by("name")
+
+
+def get_prepaid_doctor_report_summary(queryset):
+    """
+    Aggregate totals across the consolidated Doctor queryset for the report footer.
+    
+    Average Recovery % = (Total Returns / Total Expected Return) * 100
+    Displays 0% safely if Total Expected Return is zero.
+    """
+    agg = queryset.aggregate(
+        total_doctors=Count("id"),
+        sum_investment=Coalesce(Sum("total_investment"), Value(Decimal("0"))),
+        sum_expected_return=Coalesce(Sum("total_expected_return"), Value(Decimal("0"))),
+        sum_returns=Coalesce(Sum("total_returns"), Value(Decimal("0"))),
+    )
+    
+    total_investment = agg["sum_investment"]
+    total_expected_return = agg["sum_expected_return"]
+    total_returns = agg["sum_returns"]
+    
+    if total_expected_return > 0:
+        average_recovery_pct = (total_returns / total_expected_return) * Decimal("100.0")
+    else:
+        average_recovery_pct = Decimal("0.0")
+        
+    return {
+        "total_doctors": agg["total_doctors"],
+        "total_investment": total_investment,
+        "total_expected_return": total_expected_return,
+        "total_returns": total_returns,
+        "average_recovery_pct": average_recovery_pct,
+    }
+
+
+def export_prepaid_doctor_report_to_excel(queryset, summary, filters_description=None):
+    """
+    Generate a styled .xlsx workbook from the consolidated prepaid doctor report queryset
+    and return a BytesIO buffer.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Prepaid Doctors Report"
+
+    # Styles
+    _TITLE_FONT = Font(name="Calibri", bold=True, size=16, color="1E3A8A")
+    _SUBTITLE_FONT = Font(name="Calibri", italic=True, size=11, color="4B5563")
+    _HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    _HEADER_FILL = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    _HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    _THIN_BORDER = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
+    _SUMMARY_FILL = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+    _SUMMARY_FONT = Font(name="Calibri", bold=True, size=11, color="1E3A8A")
+    _DATA_FONT = Font(name="Calibri", size=11)
+
+    # Title & Company Name
+    ws["A1"] = "Medburg CRM"
+    ws["A1"].font = _TITLE_FONT
+    ws["A2"] = "Prepaid Doctors Report"
+    ws["A2"].font = Font(name="Calibri", bold=True, size=13)
+
+    # Generated Timestamp
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ws["A4"] = f"Generated At: {timestamp}"
+    ws["A4"].font = _SUBTITLE_FONT
+
+    # Applied Filters description block
+    current_row = 6
+    if filters_description:
+        ws.cell(row=current_row, column=1, value="Applied Filters:").font = Font(name="Calibri", bold=True, size=10, color="374151")
+        for k, v in filters_description.items():
+            ws.cell(row=current_row, column=2, value=f"{k}: {v}").font = Font(name="Calibri", size=10, color="4B5563")
+            current_row += 1
+        current_row += 1  # Blank row after filters
+
+    header_row = current_row
+
+    # Columns definitions
+    _COLUMNS = [
+        ("Sl No", 10),
+        ("Doctor Name", 35),
+        ("Total Investment (₹)", 25),
+        ("Total Expected Return (₹)", 25),
+        ("Total Returns Received (₹)", 25),
+    ]
+
+    # Write headers
+    for col_idx, (label, width) in enumerate(_COLUMNS, start=1):
+        cell = ws.cell(row=header_row, column=col_idx, value=label)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
+        cell.border = _THIN_BORDER
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+    ws.row_dimensions[header_row].height = 25
+
+    # Write Data
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    right_align = Alignment(horizontal="right", vertical="center")
+    currency_fmt = '₹#,##0.00'
+
+    data_start_row = header_row + 1
+    for idx, doctor in enumerate(queryset, start=1):
+        row_num = data_start_row + idx - 1
+        
+        c1 = ws.cell(row=row_num, column=1, value=idx)
+        c1.font = _DATA_FONT
+        c1.alignment = center_align
+        c1.border = _THIN_BORDER
+
+        c2 = ws.cell(row=row_num, column=2, value=doctor.name)
+        c2.font = _DATA_FONT
+        c2.alignment = left_align
+        c2.border = _THIN_BORDER
+
+        c3 = ws.cell(row=row_num, column=3, value=float(doctor.total_investment))
+        c3.font = _DATA_FONT
+        c3.number_format = currency_fmt
+        c3.alignment = right_align
+        c3.border = _THIN_BORDER
+
+        c4 = ws.cell(row=row_num, column=4, value=float(doctor.total_expected_return))
+        c4.font = _DATA_FONT
+        c4.number_format = currency_fmt
+        c4.alignment = right_align
+        c4.border = _THIN_BORDER
+
+        c5 = ws.cell(row=row_num, column=5, value=float(doctor.total_returns))
+        c5.font = _DATA_FONT
+        c5.number_format = currency_fmt
+        c5.alignment = right_align
+        c5.border = _THIN_BORDER
+
+        # Alternating row shading
+        if idx % 2 == 0:
+            shade = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
+            c1.fill = shade
+            c2.fill = shade
+            c3.fill = shade
+            c4.fill = shade
+            c5.fill = shade
+
+        ws.row_dimensions[row_num].height = 20
+
+    # Write Totals
+    tot_row = data_start_row + len(queryset)
+    ws.cell(row=tot_row, column=1, value="Total").font = _SUMMARY_FONT
+    ws.cell(row=tot_row, column=1).alignment = center_align
+    ws.cell(row=tot_row, column=1).fill = _SUMMARY_FILL
+    ws.cell(row=tot_row, column=1).border = _THIN_BORDER
+
+    ws.cell(row=tot_row, column=2, value=f"{summary['total_doctors']} Doctors").font = _SUMMARY_FONT
+    ws.cell(row=tot_row, column=2).alignment = left_align
+    ws.cell(row=tot_row, column=2).fill = _SUMMARY_FILL
+    ws.cell(row=tot_row, column=2).border = _THIN_BORDER
+
+    c3 = ws.cell(row=tot_row, column=3, value=float(summary['total_investment']))
+    c3.font = _SUMMARY_FONT
+    c3.number_format = currency_fmt
+    c3.alignment = right_align
+    c3.fill = _SUMMARY_FILL
+    c3.border = _THIN_BORDER
+
+    c4 = ws.cell(row=tot_row, column=4, value=float(summary['total_expected_return']))
+    c4.font = _SUMMARY_FONT
+    c4.number_format = currency_fmt
+    c4.alignment = right_align
+    c4.fill = _SUMMARY_FILL
+    c4.border = _THIN_BORDER
+
+    c5 = ws.cell(row=tot_row, column=5, value=float(summary['total_returns']))
+    c5.font = _SUMMARY_FONT
+    c5.number_format = currency_fmt
+    c5.alignment = right_align
+    c5.fill = _SUMMARY_FILL
+    c5.border = _THIN_BORDER
+
+    ws.row_dimensions[tot_row].height = 22
+
+    # Write Average Recovery Row
+    avg_row = tot_row + 1
+    ws.cell(row=avg_row, column=1, value="").fill = _SUMMARY_FILL
+    ws.cell(row=avg_row, column=1).border = _THIN_BORDER
+    
+    ws.cell(row=avg_row, column=2, value="Average Recovery %").font = _SUMMARY_FONT
+    ws.cell(row=avg_row, column=2).alignment = left_align
+    ws.cell(row=avg_row, column=2).fill = _SUMMARY_FILL
+    ws.cell(row=avg_row, column=2).border = _THIN_BORDER
+    
+    ws.merge_cells(start_row=avg_row, start_column=3, end_row=avg_row, end_column=5)
+    avg_cell = ws.cell(row=avg_row, column=3, value=f"{float(summary['average_recovery_pct']):.1f}%")
+    avg_cell.font = _SUMMARY_FONT
+    avg_cell.alignment = right_align
+    avg_cell.fill = _SUMMARY_FILL
+    
+    # Apply border/fill manually to merged cells
+    for c_idx in range(4, 6):
+        ws.cell(row=avg_row, column=c_idx).fill = _SUMMARY_FILL
+        ws.cell(row=avg_row, column=c_idx).border = _THIN_BORDER
+
+    ws.row_dimensions[avg_row].height = 22
+
+    # Freeze header row
+    ws.freeze_panes = f"A{header_row + 1}"
+
+    # Write to buffer
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def get_prepaid_doctor_report_filter_options():
+    """
+    Return distinct values for every filter dropdown on the consolidated prepaid report page.
+    """
+    doctors = (
+        Doctor.objects
+        .filter(is_active=True, mode="prepaid")
+        .order_by("name")
+        .values("id", "name")
+    )
+    
+    locations = (
+        Doctor.objects
+        .filter(is_active=True, mode="prepaid")
+        .exclude(location="")
+        .values_list("location", flat=True)
+        .distinct()
+        .order_by("location")
+    )
+    
+    medicines = (
+        Medicine.objects
+        .filter(is_active=True)
+        .order_by("name")
+        .values("id", "name", "brand")
+    )
+    
+    return {
+        "doctors": list(doctors),
+        "locations": list(locations),
+        "medicines": list(medicines),
+    }
+
+
