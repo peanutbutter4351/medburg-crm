@@ -91,7 +91,7 @@ if os.environ.get("POSTGRES_REQUIRE_SSL", "").lower() in ("true", "1", "yes"):
 #
 # To switch to pure Nginx static serving, remove the WhiteNoise middleware
 # from MIDDLEWARE in base.py and point Nginx at STATIC_ROOT.
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
 
 # ──────────────────────────────────────────────────────────────────
 # Media files — VPS path override
