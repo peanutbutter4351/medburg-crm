@@ -2,7 +2,7 @@
 {% block title %}Admin Dashboard — Medburg CRM{% endblock %}
 
 {% block page_title %}Admin Dashboard{% endblock %}
-{% block page_subtitle %}Company-wide Prepaid & Postpaid ROI Overview{% endblock %}
+{% block page_subtitle %}Company-wide Business Performance Overview{% endblock %}
 
 {% block content %}
 
@@ -368,15 +368,64 @@
 </div>
 
 <div id="dashboard-home-section" style="{% if current_section == 'home' or not current_section %}display: block;{% else %}display: none;{% endif %}">
+<!-- ─── Home Dashboard KPIs ─── -->
+<div class="kpi-grid mb-4">
+    <!-- Today's Revenue -->
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Today's Revenue</div>
+            <div class="kpi-value">₹{{ home_kpis.today_revenue|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-cash-stack"></i></div>
+    </div>
+    
+    <!-- Active Doctors -->
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Active Doctors</div>
+            <div class="kpi-value">{{ home_kpis.active_doctors }}</div>
+        </div>
+        <div class="kpi-icon doctors"><i class="bi bi-person-badge"></i></div>
+    </div>
+    
+    <!-- Active Prepaid Investments -->
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Active Prepaid Investments</div>
+            <div class="kpi-value">{{ home_kpis.active_prepaid_investments }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-wallet2"></i></div>
+    </div>
+    
+    <!-- Active Postpaid Campaigns -->
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Active Postpaid Campaigns</div>
+            <div class="kpi-value">{{ home_kpis.active_postpaid_campaigns }}</div>
+        </div>
+        <div class="kpi-icon target"><i class="bi bi-calendar-check"></i></div>
+    </div>
+    
+    <!-- Monthly Revenue -->
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Monthly Revenue</div>
+            <div class="kpi-value">₹{{ home_kpis.monthly_revenue|floatformat:0 }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
+    </div>
+</div>
+
 <!-- ─── Analytics & KPI Visualizations ─── -->
-<div class="row mb-5">
+<!-- Row 1: Prepaid Trend | Postpaid Trend -->
+<div class="row mb-4">
     <!-- Prepaid Monthly Trend -->
     <div class="col-lg-6 mb-4">
         <div class="data-card h-100">
             <div class="data-card-header">
-                <h5 class="data-card-title"><i class="bi bi-graph-up text-primary me-2"></i> Monthly Prepaid Sales Trend</h5>
+                <h5 class="data-card-title"><i class="bi bi-graph-up me-2" style="color: #EFA743;"></i> Monthly Prepaid Sales Trend</h5>
             </div>
-            <div class="data-card-body">
+            <div class="data-card-body p-3">
                 <canvas id="prepaidMonthlyChart" height="250"></canvas>
             </div>
         </div>
@@ -386,22 +435,25 @@
     <div class="col-lg-6 mb-4">
         <div class="data-card h-100">
             <div class="data-card-header">
-                <h5 class="data-card-title"><i class="bi bi-graph-up text-success me-2"></i> Monthly Postpaid Sales Trend</h5>
+                <h5 class="data-card-title"><i class="bi bi-graph-up me-2" style="color: #334155;"></i> Monthly Postpaid Sales Trend</h5>
             </div>
-            <div class="data-card-body">
+            <div class="data-card-body p-3">
                 <canvas id="postpaidMonthlyChart" height="250"></canvas>
             </div>
         </div>
     </div>
+</div>
 
+<!-- Row 2: Revenue Split | Top Reps | Top Doctors -->
+<div class="row mb-5">
     <!-- Revenue Split -->
     <div class="col-lg-4 mb-4">
         <div class="data-card h-100">
             <div class="data-card-header">
-                <h5 class="data-card-title"><i class="bi bi-pie-chart-fill text-warning me-2"></i> Revenue Split</h5>
+                <h5 class="data-card-title"><i class="bi bi-pie-chart-fill me-2" style="color: #EFA743;"></i> Revenue Split</h5>
             </div>
-            <div class="data-card-body d-flex justify-content-center align-items-center">
-                <div style="position: relative; width: 100%; max-width: 300px;">
+            <div class="data-card-body d-flex justify-content-center align-items-center p-3">
+                <div style="position: relative; width: 100%; max-width: 250px;">
                     <canvas id="revenueSplitChart"></canvas>
                 </div>
             </div>
@@ -412,9 +464,9 @@
     <div class="col-lg-4 mb-4">
         <div class="data-card h-100">
             <div class="data-card-header">
-                <h5 class="data-card-title"><i class="bi bi-person-badge-fill text-info me-2"></i> Top Performing Reps</h5>
+                <h5 class="data-card-title"><i class="bi bi-person-badge-fill me-2" style="color: #334155;"></i> Top Performing Reps</h5>
             </div>
-            <div class="data-card-body">
+            <div class="data-card-body p-3">
                 <canvas id="topRepsChart" height="250"></canvas>
             </div>
         </div>
@@ -424,9 +476,9 @@
     <div class="col-lg-4 mb-4">
         <div class="data-card h-100">
             <div class="data-card-header">
-                <h5 class="data-card-title"><i class="bi bi-heart-pulse-fill text-danger me-2"></i> Top Performing Doctors</h5>
+                <h5 class="data-card-title"><i class="bi bi-heart-pulse-fill me-2" style="color: #EFA743;"></i> Top Performing Doctors</h5>
             </div>
-            <div class="data-card-body">
+            <div class="data-card-body p-3">
                 <canvas id="topDoctorsChart" height="250"></canvas>
             </div>
         </div>
@@ -551,9 +603,20 @@
         if (!dataNode) return;
         const analytics = JSON.parse(dataNode.textContent);
         
+        // Shared Color Constants matching Medburg Brand colors
+        const CHART_COLORS = {
+            prepaid: '#EFA743',      // Medburg Orange
+            postpaid: '#334155',     // Medburg Soft Dark Navy
+            gridLine: 'rgba(226, 232, 240, 0.4)' // Lighter grid line
+        };
+
         // Common Chart Options
         Chart.defaults.font.family = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
         Chart.defaults.color = "#64748b";
+        Chart.defaults.font.size = 11; // Consistent typography scale
+        Chart.defaults.plugins.legend.labels.boxWidth = 12;
+        Chart.defaults.plugins.legend.labels.padding = 15;
+        Chart.defaults.animation.duration = 500; // Faster rendering, avoid long entrance animations
         
         const currencyFormatter = (value) => {
             if (value >= 1000000) return '₹' + (value / 1000000).toFixed(1) + 'M';
@@ -561,15 +624,40 @@
             return '₹' + value;
         };
 
-        const createLineChart = (ctxId, label, dataObj, colorHex) => {
+        const checkAndRender = (ctxId, dataObj, renderFn) => {
             const ctx = document.getElementById(ctxId);
             if (!ctx) return;
-            const hasData = dataObj.data.some(d => d > 0);
+            const container = ctx.parentElement;
+            const hasData = dataObj && dataObj.data && dataObj.data.some(d => d > 0);
+            
             if (!hasData) {
-                ctx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
-                return;
+                ctx.style.display = 'none';
+                let emptyState = container.querySelector('.chart-empty-state');
+                if (!emptyState) {
+                    emptyState = document.createElement('div');
+                    emptyState.className = 'chart-empty-state d-flex flex-column align-items-center justify-content-center text-center p-4';
+                    emptyState.style.minHeight = '220px';
+                    emptyState.innerHTML = `
+                        <div style="font-size: 2.2rem; color: #94a3b8;" class="mb-2">
+                            <i class="bi bi-bar-chart"></i>
+                        </div>
+                        <h6 class="fw-bold mb-1" style="color: #475569;">No Data Available</h6>
+                        <p class="text-muted mb-0" style="font-size: 0.8rem;">No data available for this chart.</p>
+                    `;
+                    container.appendChild(emptyState);
+                } else {
+                    emptyState.style.display = 'flex';
+                }
+            } else {
+                ctx.style.display = 'block';
+                const emptyState = container.querySelector('.chart-empty-state');
+                if (emptyState) emptyState.style.display = 'none';
+                renderFn(ctx);
             }
-            new Chart(ctx, {
+        };
+
+        const createLineChart = (canvas, label, dataObj, colorHex) => {
+            new Chart(canvas, {
                 type: 'line',
                 data: {
                     labels: dataObj.labels,
@@ -577,11 +665,16 @@
                         label: label,
                         data: dataObj.data,
                         borderColor: colorHex,
-                        backgroundColor: colorHex + '20',
-                        borderWidth: 2,
+                        backgroundColor: colorHex + '15',
+                        borderWidth: 2.5,
                         tension: 0.3,
                         fill: true,
                         pointBackgroundColor: colorHex,
+                        pointHoverBackgroundColor: colorHex,
+                        pointBorderColor: '#fff',
+                        pointHoverBorderColor: '#fff',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
                     }]
                 },
                 options: {
@@ -589,8 +682,12 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
+                        x: {
+                            grid: { display: false }
+                        },
                         y: { 
                             beginAtZero: true,
+                            grid: { color: CHART_COLORS.gridLine },
                             ticks: { callback: currencyFormatter }
                         }
                     }
@@ -598,25 +695,17 @@
             });
         };
 
-        const createBarChart = (ctxId, label, dataObj, colorHex) => {
-            const ctx = document.getElementById(ctxId);
-            if (!ctx) return;
-            const hasData = dataObj.data.some(d => d > 0);
-            if (!hasData) {
-                ctx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
-                return;
-            }
-            new Chart(ctx, {
+        const createBarChart = (canvas, label, dataObj, colorHex) => {
+            new Chart(canvas, {
                 type: 'bar',
                 data: {
                     labels: dataObj.labels,
                     datasets: [{
                         label: label,
                         data: dataObj.data,
-                        backgroundColor: colorHex + '99',
-                        borderColor: colorHex,
-                        borderWidth: 1,
+                        backgroundColor: colorHex,
                         borderRadius: 4,
+                        barPercentage: 0.6,
                     }]
                 },
                 options: {
@@ -624,8 +713,12 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
+                        x: {
+                            grid: { display: false }
+                        },
                         y: { 
                             beginAtZero: true,
+                            grid: { color: CHART_COLORS.gridLine },
                             ticks: { callback: currencyFormatter }
                         }
                     }
@@ -634,52 +727,54 @@
         };
 
         // 1. Prepaid Monthly
-        createLineChart('prepaidMonthlyChart', 'Prepaid Sales', analytics.prepaid_monthly, '#0ea5e9'); // primary
+        checkAndRender('prepaidMonthlyChart', analytics.prepaid_monthly, (canvas) => {
+            createLineChart(canvas, 'Prepaid Sales', analytics.prepaid_monthly, CHART_COLORS.prepaid);
+        });
         
         // 2. Postpaid Monthly
-        createLineChart('postpaidMonthlyChart', 'Postpaid Sales', analytics.postpaid_monthly, '#10b981'); // success
+        checkAndRender('postpaidMonthlyChart', analytics.postpaid_monthly, (canvas) => {
+            createLineChart(canvas, 'Postpaid Sales', analytics.postpaid_monthly, CHART_COLORS.postpaid);
+        });
 
         // 3. Revenue Split
-        const splitCtx = document.getElementById('revenueSplitChart');
-        if (splitCtx) {
-            const hasData = analytics.revenue_split.data.some(d => d > 0);
-            if (!hasData) {
-                splitCtx.parentElement.innerHTML = '<div class="text-center text-muted py-5">No Data Available</div>';
-            } else {
-                new Chart(splitCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: analytics.revenue_split.labels,
-                        datasets: [{
-                            data: analytics.revenue_split.data,
-                            backgroundColor: ['#0ea5e9', '#10b981'],
-                            borderWidth: 0,
-                            hoverOffset: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        cutout: '65%',
-                        plugins: {
-                            legend: { position: 'bottom' },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        return context.label + ': ₹' + context.raw.toLocaleString();
-                                    }
+        checkAndRender('revenueSplitChart', analytics.revenue_split, (canvas) => {
+            new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: analytics.revenue_split.labels,
+                    datasets: [{
+                        data: analytics.revenue_split.data,
+                        backgroundColor: [CHART_COLORS.prepaid, CHART_COLORS.postpaid],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 15 } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ₹' + context.raw.toLocaleString();
                                 }
                             }
                         }
                     }
-                });
-            }
-        }
+                }
+            });
+        });
 
         // 4. Top Reps
-        createBarChart('topRepsChart', 'Sales', analytics.top_reps, '#6366f1'); // indigo/info-like
+        checkAndRender('topRepsChart', analytics.top_reps, (canvas) => {
+            createBarChart(canvas, 'Sales', analytics.top_reps, CHART_COLORS.postpaid);
+        });
 
         // 5. Top Doctors
-        createBarChart('topDoctorsChart', 'Sales', analytics.top_doctors, '#f43f5e'); // rose/danger-like
+        checkAndRender('topDoctorsChart', analytics.top_doctors, (canvas) => {
+            createBarChart(canvas, 'Sales', analytics.top_doctors, CHART_COLORS.prepaid);
+        });
     });
 </script>
 {% endblock %}

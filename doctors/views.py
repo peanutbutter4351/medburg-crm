@@ -20,6 +20,7 @@ from .services.doctor_service import (
 from sales.services.analytics_service import (
     get_admin_dashboard_analytics,
     get_rep_dashboard_analytics,
+    get_home_kpis,
 )
 
 
@@ -65,6 +66,7 @@ def doctor_dashboard(request):
 
         # MR-9.2 Analytics
         admin_analytics = get_admin_dashboard_analytics()
+        home_kpis = get_home_kpis()
 
         context = {
             "doctors": doctors,
@@ -76,6 +78,7 @@ def doctor_dashboard(request):
             "active_campaigns": active_campaigns,
             "alerts": alerts,
             "admin_analytics": admin_analytics,
+            "home_kpis": home_kpis,
             # Pass current filter values back to template for sticky selects
             "current_rep": rep_id,
             "current_location": location,
