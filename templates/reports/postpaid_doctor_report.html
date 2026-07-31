@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Postpaid Doctors Report — Medburg CRM{% endblock %}
+
+{% block page_title %}Postpaid Doctors Report{% endblock %}
+{% block page_subtitle %}Consolidated doctor-wise postpaid sales and commission summary{% endblock %}
+
+{% block content %}
+
+<!-- ── Filter Bar ────────────────────────────────── -->
+<div class="filter-card">
+    <form method="get" id="report-filter-form">
+        <div class="row g-3 align-items-end">
+            <!-- Date range (Sales Date only) -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-from-date">Sales Date From</label>
+                <input type="date"
+                       class="form-control"
+                       id="filter-from-date"
+                       name="from_date"
+                       value="{{ current_from_date }}">
+            </div>
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-to-date">Sales Date To</label>
+                <input type="date"
+                       class="form-control"
+                       id="filter-to-date"
+                       name="to_date"
+                       value="{{ current_to_date }}">
+            </div>
+
+            <!-- Doctor -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-doctor">Doctor</label>
+                <select class="form-select" id="filter-doctor" name="doctor">
+                    <option value="">All Doctors</option>
+                    {% for doc in filter_options.doctors %}
+                    <option value="{{ doc.id }}"
+                        {% if current_doctor == doc.id %}selected{% endif %}>
+                        {{ doc.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Location -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-location">Location</label>
+                <select class="form-select" id="filter-location" name="location">
+                    <option value="">All Locations</option>
+                    {% for loc in filter_options.locations %}
+                    <option value="{{ loc }}"
+                        {% if current_location == loc %}selected{% endif %}>
+                        {{ loc }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Product / Medicine -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-medicine">Product</label>
+                <select class="form-select" id="filter-medicine" name="medicine">
+                    <option value="">All Products</option>
+                    {% for med in filter_options.medicines %}
+                    <option value="{{ med.id }}"
+                        {% if current_medicine == med.id %}selected{% endif %}>
+                        {{ med.name }}{% if med.brand %} ({{ med.brand }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Campaign Status -->
+            <div class="col-12 col-sm-6 col-md-2">
+                <label class="form-label" for="filter-status">Campaign Status</label>
+                <select class="form-select" id="filter-status" name="status">
+                    <option value="">All Statuses</option>
+                    {% for val, label in filter_options.statuses %}
+                    <option value="{{ val }}" {% if current_status == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="col-12 col-sm-6 col-md-2 d-flex gap-2">
+                <button type="submit" class="btn-crm-primary flex-fill">
+                    <i class="bi bi-funnel"></i> Apply
+                </button>
+                {% if has_filters %}
+                <a href="{% url 'reports:postpaid_doctor_report' %}" class="btn-crm-outline flex-fill">
+                    <i class="bi bi-x-lg"></i> Clear
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- ── KPI Summary Cards ─────────────────────────── -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Doctors</div>
+            <div class="kpi-value">{{ summary.total_doctors }}</div>
+        </div>
+        <div class="kpi-icon entries"><i class="bi bi-people"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Sales Value</div>
+            <div class="kpi-value">₹{{ summary.total_sales|floatformat:"2" }}</div>
+        </div>
+        <div class="kpi-icon investment"><i class="bi bi-cash-stack"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Total Commission</div>
+            <div class="kpi-value">₹{{ summary.total_commission|floatformat:"2" }}</div>
+        </div>
+        <div class="kpi-icon achieved"><i class="bi bi-graph-up-arrow"></i></div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-info">
+            <div class="kpi-label">Average Commission %</div>
+            <div class="kpi-value">{{ summary.average_commission_pct|floatformat:"2" }}%</div>
+        </div>
+        <div class="kpi-icon percent"><i class="bi bi-percent"></i></div>
+    </div>
+</div>
+
+<!-- ── Data Table ─────────────────────────────────── -->
+<div class="data-card">
+    <div class="data-card-header">
+        <h5 class="data-card-title">
+            <i class="bi bi-table"></i> Postpaid Doctors Report
+            <span class="count-badge">{{ paginator.count }}</span>
+        </h5>
+        {% if summary.total_doctors > 0 %}
+        <a href="{% url 'reports:export_postpaid_doctor_report' %}?{{ request.GET.urlencode }}"
+           class="btn-crm-secondary"
+           id="btn-export-excel">
+            <i class="bi bi-file-earmark-excel"></i> Export
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="data-card-body">
+        <div class="table-responsive">
+            <table class="crm-table" id="report-data-table">
+                <thead>
+                    <tr>
+                        <th class="text-center" style="width: 80px;">Sl No</th>
+                        <th>Doctor Name</th>
+                        <th class="text-right">Total Sales Value (₹)</th>
+                        <th class="text-right">Total Commission (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if doctors %}
+                        {% for doc in doctors %}
+                        <tr>
+                            <td class="text-center text-crm-muted">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                            <td><strong>{{ doc.name }}</strong></td>
+                            <td class="text-right value-cell">₹{{ doc.total_sales_value|floatformat:"2" }}</td>
+                            <td class="text-right value-cell">₹{{ doc.total_commission|floatformat:"2" }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">
+                                <div class="py-2">
+                                    <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                    No postpaid doctor records match the selected filters.
+                                </div>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Pagination ──────────────────────────────────── -->
+    {% if paginator.num_pages > 1 %}
+    <div class="data-card-footer d-flex align-items-center justify-content-between flex-wrap gap-2" style="padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-color);">
+        <div class="text-crm-muted" style="font-size: 0.875rem;">
+            Showing doctors {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ paginator.count }}
+        </div>
+        <nav aria-label="Report pagination">
+            <ul class="pagination pagination-sm mb-0">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page=1" aria-label="First">
+                        <i class="bi bi-chevron-double-left"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ page_obj.previous_page_number }}" aria-label="Previous">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for num in paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active" aria-current="page">
+                        <span class="page-link">{{ num }}</span>
+                    </li>
+                    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{{ filter_qs }}&page={{ num }}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ page_obj.next_page_number }}" aria-label="Next">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?{{ filter_qs }}&page={{ paginator.num_pages }}" aria-label="Last">
+                        <i class="bi bi-chevron-double-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

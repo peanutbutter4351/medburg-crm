@@ -54,9 +54,15 @@
             </li>
             {% if user.is_admin_user %}
             <li>
+                <a href="{% url 'reports:prepaid_doctor_report' %}"
+                   class="{% if request.resolver_match.url_name == 'prepaid_doctor_report' %}active{% endif %}">
+                    <i class="bi bi-file-earmark-person"></i> <span>Prepaid Doctors Report</span>
+                </a>
+            </li>
+            <li>
                 <a href="{% url 'reports:report' %}"
-                   class="{% if request.resolver_match.app_name == 'reports' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-bar-graph"></i> <span>Prepaid Report</span>
+                   class="{% if request.resolver_match.url_name == 'report' %}active{% endif %}">
+                    <i class="bi bi-file-earmark-bar-graph"></i> <span>Prepaid Sales Report</span>
                 </a>
             </li>
             {% endif %}
@@ -85,6 +91,12 @@
                 <a href="{% url 'sales:settlement_ledger' %}"
                    class="{% if request.resolver_match.url_name == 'settlement_ledger' %}active{% endif %}">
                     <i class="bi bi-journal-text"></i> <span>Settlement Ledger</span>
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'reports:postpaid_doctor_report' %}"
+                   class="{% if request.resolver_match.url_name == 'postpaid_doctor_report' %}active{% endif %}">
+                    <i class="bi bi-person-badge"></i> <span>Postpaid Doctors Report</span>
                 </a>
             </li>
             {% endif %}

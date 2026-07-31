@@ -229,3 +229,63 @@ def get_rep_dashboard_analytics(user):
             "data": investment_distribution_data
         }
     }
+
+
+def get_home_kpis():
+    """
+    Compute KPI summary metrics for the Admin Dashboard Home Redesign.
+    - Today's Revenue: Sum of prepaid + postpaid value_at_sale where entry_date == today.
+    - Active Doctors: Count of active Doctor records.
+    - Active Prepaid Investments: Count of Investment objects with status = in_progress.
+    - Active Postpaid Campaigns: Count of non-locked postpaid campaigns.
+    - Monthly Revenue: Sum of prepaid + postpaid value_at_sale for the current calendar month.
+    """
+    from datetime import date
+    from doctors.models import Investment
+    
+    today = date.today()
+    
+    # 1. Today's Revenue
+    prepaid_today = SalesEntry.objects.filter(entry_date=today).aggregate(
+        total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
+    
+    postpaid_today = PostpaidSaleEntry.objects.filter(entry_date=today).aggregate(
+        total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
+    
+    today_revenue = prepaid_today + postpaid_today
+    
+    # 2. Active Doctors
+    active_doctors = Doctor.objects.filter(is_active=True).count()
+    
+    # 3. Active Prepaid Investments
+    active_prepaid_investments = Investment.objects.filter(status=Investment.STATUS_IN_PROGRESS).count()
+    
+    # 4. Active Postpaid Campaigns (non-locked campaigns)
+    active_postpaid_campaigns = PostpaidCampaign.objects.exclude(status=PostpaidCampaign.STATUS_LOCKED).count()
+    
+    # 5. Monthly Revenue
+    prepaid_month = SalesEntry.objects.filter(
+        entry_date__year=today.year,
+        entry_date__month=today.month
+    ).aggregate(
+        total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
+    
+    postpaid_month = PostpaidSaleEntry.objects.filter(
+        entry_date__year=today.year,
+        entry_date__month=today.month
+    ).aggregate(
+        total=Coalesce(Sum('value_at_sale'), Decimal('0.00'), output_field=DecimalField())
+    )['total']
+    
+    monthly_revenue = prepaid_month + postpaid_month
+    
+    return {
+        "today_revenue": today_revenue,
+        "active_doctors": active_doctors,
+        "active_prepaid_investments": active_prepaid_investments,
+        "active_postpaid_campaigns": active_postpaid_campaigns,
+        "monthly_revenue": monthly_revenue,
+    }

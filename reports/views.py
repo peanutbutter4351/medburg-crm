@@ -30,6 +30,16 @@ from .services.report_service import (
     get_report_filter_options,
     get_report_queryset,
     get_report_summary,
+    get_prepaid_doctor_report_queryset,
+    get_prepaid_doctor_report_summary,
+    export_prepaid_doctor_report_to_excel,
+    get_prepaid_doctor_report_filter_options,
+)
+from .services.postpaid_report_service import (
+    get_postpaid_doctor_report_filter_options,
+    get_postpaid_doctor_report_queryset,
+    get_postpaid_doctor_report_summary,
+    export_postpaid_doctor_report_to_excel,
 )
 
 
@@ -171,3 +181,266 @@ def export_report_view(request):
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def _parse_prepaid_doctor_filters(request):
+    """
+    Extract and normalise filter parameters from the GET querystring for Prepaid Doctor Report.
+    """
+    from_date_raw = request.GET.get("from_date", "").strip()
+    to_date_raw = request.GET.get("to_date", "").strip()
+
+    from_date = None
+    to_date = None
+    if from_date_raw:
+        try:
+            from_date = datetime.strptime(from_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if to_date_raw:
+        try:
+            to_date = datetime.strptime(to_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    doctor_id_raw = request.GET.get("doctor", "")
+    location_raw = request.GET.get("location", "").strip()
+    medicine_id_raw = request.GET.get("medicine", "")
+    status_raw = request.GET.get("status", "").strip()
+
+    def _safe_int(val):
+        try:
+            return int(val) if val else None
+        except (ValueError, TypeError):
+            return None
+
+    valid_statuses = {"in_progress", "completed"}
+    status = status_raw if status_raw in valid_statuses else None
+
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "doctor_id": _safe_int(doctor_id_raw),
+        "location": location_raw or None,
+        "medicine_id": _safe_int(medicine_id_raw),
+        "status": status,
+    }
+
+
+@admin_required
+def prepaid_doctor_report_view(request):
+    """
+    Consolidated doctor-wise prepaid report page with filters, metrics, and data table.
+    """
+    filters = _parse_prepaid_doctor_filters(request)
+    queryset = get_prepaid_doctor_report_queryset(**filters)
+    summary = get_prepaid_doctor_report_summary(queryset)
+    filter_options = get_prepaid_doctor_report_filter_options()
+
+    # Paginate
+    paginator = Paginator(queryset, PAGE_SIZE)
+    page_number = request.GET.get("page", 1)
+    try:
+        page_obj = paginator.page(page_number)
+    except InvalidPage:
+        page_obj = paginator.page(1)
+
+    filter_qs = _filter_querystring(request)
+
+    context = {
+        "doctors": page_obj.object_list,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "filter_qs": filter_qs,
+        "summary": summary,
+        "filter_options": filter_options,
+        # Sticky filters
+        "current_from_date": request.GET.get("from_date", ""),
+        "current_to_date": request.GET.get("to_date", ""),
+        "current_doctor": filters["doctor_id"],
+        "current_location": filters["location"],
+        "current_medicine": filters["medicine_id"],
+        "current_status": request.GET.get("status", ""),
+        "has_filters": any(v for k, v in filters.items() if v is not None),
+    }
+
+    return render(request, "reports/prepaid_doctor_report.html", context)
+
+
+@admin_required
+def export_prepaid_doctor_report_view(request):
+    """
+    Excel export for the consolidated doctor-wise prepaid report.
+    """
+    filters = _parse_prepaid_doctor_filters(request)
+    queryset = get_prepaid_doctor_report_queryset(**filters)
+    summary = get_prepaid_doctor_report_summary(queryset)
+
+    # Format applied filters description for Excel header
+    filters_desc = {}
+    if filters["doctor_id"]:
+        from doctors.models import Doctor
+        try:
+            doc = Doctor.objects.get(pk=filters["doctor_id"])
+            filters_desc["Doctor"] = doc.name
+        except Doctor.DoesNotExist:
+            pass
+    if filters["location"]:
+        filters_desc["Location"] = filters["location"]
+    if filters["medicine_id"]:
+        from medicines.models import Medicine
+        try:
+            med = Medicine.objects.get(pk=filters["medicine_id"])
+            filters_desc["Product"] = f"{med.name} ({med.brand})" if med.brand else med.name
+        except Medicine.DoesNotExist:
+            pass
+    if filters["from_date"]:
+        filters_desc["Sales Date From"] = filters["from_date"].strftime("%Y-%m-%d")
+    if filters["to_date"]:
+        filters_desc["Sales Date To"] = filters["to_date"].strftime("%Y-%m-%d")
+    if filters["status"]:
+        filters_desc["Investment Status"] = filters["status"].replace("_", " ").title()
+
+    buf = export_prepaid_doctor_report_to_excel(queryset, summary, filters_desc)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"medburg_prepaid_doctors_report_{timestamp}.xlsx"
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _parse_postpaid_doctor_filters(request):
+    """
+    Extract and normalise filter parameters for the postpaid doctor report.
+    """
+    from_date_raw = request.GET.get("from_date", "").strip()
+    to_date_raw = request.GET.get("to_date", "").strip()
+
+    from_date = None
+    to_date = None
+    if from_date_raw:
+        try:
+            from_date = datetime.strptime(from_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if to_date_raw:
+        try:
+            to_date = datetime.strptime(to_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    doctor_id_raw = request.GET.get("doctor", "")
+    location_raw = request.GET.get("location", "").strip()
+    medicine_id_raw = request.GET.get("medicine", "")
+    status_raw = request.GET.get("status", "").strip()
+
+    def _safe_int(val):
+        try:
+            return int(val) if val else None
+        except (ValueError, TypeError):
+            return None
+
+    valid_statuses = {"awaiting_commission", "open", "partial", "settled", "locked"}
+    status = status_raw if status_raw in valid_statuses else None
+
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "doctor_id": _safe_int(doctor_id_raw),
+        "location": location_raw or None,
+        "medicine_id": _safe_int(medicine_id_raw),
+        "status": status,
+    }
+
+
+@admin_required
+def postpaid_doctor_report_view(request):
+    """
+    Consolidated doctor-wise postpaid report page with filters, metrics, and data table.
+    """
+    filters = _parse_postpaid_doctor_filters(request)
+    queryset = get_postpaid_doctor_report_queryset(**filters)
+    summary = get_postpaid_doctor_report_summary(queryset)
+    filter_options = get_postpaid_doctor_report_filter_options()
+
+    # Paginate
+    paginator = Paginator(queryset, PAGE_SIZE)
+    page_number = request.GET.get("page", 1)
+    try:
+        page_obj = paginator.page(page_number)
+    except InvalidPage:
+        page_obj = paginator.page(1)
+
+    filter_qs = _filter_querystring(request)
+
+    context = {
+        "doctors": page_obj.object_list,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "filter_qs": filter_qs,
+        "summary": summary,
+        "filter_options": filter_options,
+        # Sticky filters
+        "current_from_date": request.GET.get("from_date", ""),
+        "current_to_date": request.GET.get("to_date", ""),
+        "current_doctor": filters["doctor_id"],
+        "current_location": filters["location"],
+        "current_medicine": filters["medicine_id"],
+        "current_status": request.GET.get("status", ""),
+        "has_filters": any(v for k, v in filters.items() if v is not None),
+    }
+
+    return render(request, "reports/postpaid_doctor_report.html", context)
+
+
+@admin_required
+def export_postpaid_doctor_report_view(request):
+    """
+    Excel export for the postpaid doctor report.
+    """
+    filters = _parse_postpaid_doctor_filters(request)
+    queryset = get_postpaid_doctor_report_queryset(**filters)
+    summary = get_postpaid_doctor_report_summary(queryset)
+
+    # Format applied filters description for Excel header
+    filters_desc = {}
+    if filters["doctor_id"]:
+        from doctors.models import Doctor
+        try:
+            doc = Doctor.objects.get(pk=filters["doctor_id"])
+            filters_desc["Doctor"] = doc.name
+        except Doctor.DoesNotExist:
+            pass
+    if filters["location"]:
+        filters_desc["Location"] = filters["location"]
+    if filters["medicine_id"]:
+        from medicines.models import Medicine
+        try:
+            med = Medicine.objects.get(pk=filters["medicine_id"])
+            filters_desc["Product"] = f"{med.name} ({med.brand})" if med.brand else med.name
+        except Medicine.DoesNotExist:
+            pass
+    if filters["from_date"]:
+        filters_desc["Sales Date From"] = filters["from_date"].strftime("%Y-%m-%d")
+    if filters["to_date"]:
+        filters_desc["Sales Date To"] = filters["to_date"].strftime("%Y-%m-%d")
+    if filters["status"]:
+        filters_desc["Campaign Status"] = filters["status"].replace("_", " ").title()
+
+    buf = export_postpaid_doctor_report_to_excel(queryset, summary, filters_desc)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"medburg_postpaid_doctors_report_{timestamp}.xlsx"
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
